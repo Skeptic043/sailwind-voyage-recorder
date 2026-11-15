@@ -74,8 +74,8 @@ namespace VoyageRecorder
         public static string Header(string modVersion, int slot) =>
             new Line("header").Text("format", Format).Int("version", Version).Text("mod", modVersion).Int("slot", slot).End();
 
-        public static string Session(int day, double hour) =>
-            new Line("session").Int("day", day).Number("hour", hour, 4).End();
+        public static string Session(int day, double hour, string game) =>
+            new Line("session").Int("day", day).Number("hour", hour, 4).Text("game", game).End();
 
         public static string Position(Reading reading) =>
             new Line("position").Int("day", reading.Day).Number("hour", reading.Hour, 4)

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.9
+
+### Added
+- Recordings note which game they belong to, so Sailwind Chartroom keeps a new game in the same save slot apart from the old one
+
 ## 0.1.8
 
 ### Initial Release

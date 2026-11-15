@@ -23,8 +23,10 @@ Written once, when the file is created.
 Written before the first reading after each load or new game. A new game in the same slot keeps appending to the same file, so game time can go backwards at a session line. Treat each session as its own track.
 
 ```json
-{"type":"session","day":12,"hour":7.25}
+{"type":"session","day":12,"hour":7.25,"game":"0a1b2c3d4e5f"}
 ```
+
+`game` names the game the session belongs to. Voyage Recorder keeps it in the save, so it stays the same across saving and loading and changes with each new game. Two sessions with different `game` values are different games, and the lines after the last such change are the current game. Logs from 0.1.8 and earlier have no `game`; treat their sessions as one earlier game of their own.
 
 ### position
 

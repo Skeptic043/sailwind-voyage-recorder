@@ -33,12 +33,15 @@ namespace VoyageRecorder
             Check(header.GetProperty("mod").GetString() == "0.1.0", "header mod version");
             Check(header.GetProperty("slot").GetInt32() == 2, "header slot");
 
-            string sessionLine = LogFormat.Session(12, 7.123456);
+            string sessionLine = LogFormat.Session(12, 7.123456, null);
             var session = Parse(sessionLine);
             Check(session.GetProperty("type").GetString() == "session", "session type");
             Check(session.GetProperty("day").GetInt32() == 12 && session.GetProperty("hour").GetDouble() == 7.1235,
                 "session day and hour, hour to 4 places");
             Check(sessionLine.Contains("\"hour\":7.1235}"), "session hour uses a decimal point");
+            Check(!session.TryGetProperty("game", out _), "session without a game id leaves it out");
+            var gameSession = Parse(LogFormat.Session(12, 7.5, "0a1b2c3d4e5f"));
+            Check(gameSession.GetProperty("game").GetString() == "0a1b2c3d4e5f", "session carries the game id");
 
             var full = new Reading
             {

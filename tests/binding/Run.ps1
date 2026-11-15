@@ -39,7 +39,7 @@ try {
         @('NotificationUi', 'instance'), @('NotificationUi', 'ShowNotification'),
         @('GameState', 'lastVisitedPort'), @('Port', 'portIndex'), @('Port', 'GetPortName'), @('Refs', 'islands'),
         @('BoatDamage', 'hullDamage'), @('Mission', 'originPort'), @('Mission', 'destinationPort'),
-        @('Mission', 'distance'), @('Sun', 'initialTimescale'))
+        @('Mission', 'distance'), @('Sun', 'initialTimescale'), @('GameState', 'modData'))
     foreach ($pair in $members) {
         $type = $game.GetType($pair[0], $true)
         if (@($type.GetMember($pair[1], $all)).Count -eq 0) { throw "Missing native member: $($pair[0]).$($pair[1])" }

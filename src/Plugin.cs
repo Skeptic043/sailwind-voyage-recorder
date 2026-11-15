@@ -14,7 +14,7 @@ namespace VoyageRecorder
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Id = "com.skeptic043.sailwind.voyagerecorder";
-        public const string Version = "0.1.8";
+        public const string Version = "0.1.9";
 
         private static Plugin instance;
         private static ManualLogSource log;
@@ -333,7 +333,7 @@ namespace VoyageRecorder
                 Directory.CreateDirectory(folder);
                 text += LogFormat.Header(Version, SaveSlots.currentSlot);
             }
-            if (sessionPending) text += LogFormat.Session(day, hour);
+            if (sessionPending) text += LogFormat.Session(day, hour, GameId);
             text += line;
             // Opened, appended and closed each time, so Chartroom can read while the game writes.
             File.AppendAllText(path, text);
@@ -365,16 +365,35 @@ namespace VoyageRecorder
             }
         }
 
+        // Which game a session belongs to, kept in the save's mod data so it survives saving and loading. A new
+        // game gets a new one; so does a save made before Voyage Recorder kept one, from its next save on.
+        private static string GameId => GameState.modData != null && GameState.modData.TryGetValue(Id, out string game) ? game : null;
+
+        private static void NewGameId()
+        {
+            if (GameState.modData != null) GameState.modData[Id] = Guid.NewGuid().ToString("N").Substring(0, 12);
+        }
+
         [HarmonyPatch(typeof(SaveLoadManager), nameof(SaveLoadManager.LoadGame))]
         private static class LoadGamePatch
         {
             private static void Prefix() => ResetForNewSession();
+
+            // LoadGame puts the save's mod data in place before it returns.
+            private static void Postfix()
+            {
+                if (GameId == null) NewGameId();
+            }
         }
 
         [HarmonyPatch(typeof(StartMenu), "StartNewGame")]
         private static class NewGamePatch
         {
-            private static void Prefix() => ResetForNewSession();
+            private static void Prefix()
+            {
+                ResetForNewSession();
+                NewGameId();
+            }
         }
 
         [HarmonyPatch(typeof(Sleep), nameof(Sleep.FallAsleep))]
