@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 
 namespace VoyageRecorder
@@ -25,6 +26,7 @@ namespace VoyageRecorder
             // A decimal-comma culture must never reach the file.
             CultureInfo.CurrentCulture = new CultureInfo("de-DE");
             CultureInfo.CurrentUICulture = new CultureInfo("de-DE");
+            LogFormat.Now = () => new DateTime(2026, 11, 15, 12, 0, 0, 500, DateTimeKind.Utc);
 
             var header = Parse(LogFormat.Header("0.1.0", 2));
             Check(header.GetProperty("type").GetString() == "header", "header type");
@@ -39,6 +41,29 @@ namespace VoyageRecorder
             Check(session.GetProperty("day").GetInt32() == 12 && session.GetProperty("hour").GetDouble() == 7.1235,
                 "session day and hour, hour to 4 places");
             Check(sessionLine.Contains("\"hour\":7.1235}"), "session hour uses a decimal point");
+            Check(header.GetProperty("utc").GetDouble() == 1794744000.5 && session.GetProperty("utc").GetDouble() == 1794744000.5,
+                "every line has the real time in Unix seconds with milliseconds");
+            Check(sessionLine.StartsWith("{\"type\":\"session\",\"utc\":"), "utc follows the type");
+            Check(!session.TryGetProperty("world", out _) && !session.TryGetProperty("plugins", out _), "session without world or plugins leaves them out");
+
+            var vanilla = Parse(LogFormat.Session(1, 6, "g", new WorldInfo(), new[] { new LoadedPlugin { Guid = "a.b", Name = "A \"B\"", Version = "1.2.3" } }));
+            Check(vanilla.GetProperty("world").GetProperty("kind").GetString() == "vanilla" && vanilla.GetProperty("world").EnumerateObject().Count() == 1,
+                "a vanilla world is just its kind");
+            var plugin = vanilla.GetProperty("plugins")[0];
+            Check(plugin.GetProperty("guid").GetString() == "a.b" && plugin.GetProperty("name").GetString() == "A \"B\"" && plugin.GetProperty("version").GetString() == "1.2.3",
+                "plugins list each guid, name and version");
+            var scrambled = Parse(LogFormat.Session(1, 6, "g", new WorldInfo
+            {
+                Scrambled = true, Seed = -12345, IslandSpread = 10000, MinArchipelagoSeparation = 30000, MinIslandSeparation = 2000,
+                LonMin = -12, LonMax = 32, LatMin = 26, LatMax = 46, BorderExpander = 1, Scrambler = 60, ScrambledSeas = "6.0.2", Layout = "00ff"
+            }, new LoadedPlugin[0])).GetProperty("world");
+            Check(scrambled.GetProperty("kind").GetString() == "scrambled" && scrambled.GetProperty("seed").GetInt32() == -12345
+                && scrambled.GetProperty("latMax").GetInt32() == 46 && scrambled.GetProperty("scrambler").GetInt32() == 60
+                && scrambled.GetProperty("scrambledSeas").GetString() == "6.0.2" && scrambled.GetProperty("layout").GetString() == "00ff",
+                "a Scrambled Seas world has its seed, settings, versions and layout");
+            string layout = LogFormat.LayoutFingerprint(new[] { 1000.4, -2.0, 30000.0 });
+            Check(layout.Length == 16 && layout == LogFormat.LayoutFingerprint(new[] { 999.6, -2.2, 30000.1 }), "layout fingerprint ignores sub-metre differences");
+            Check(layout != LogFormat.LayoutFingerprint(new[] { -2.0, 1000.0, 30000.0 }), "layout fingerprint depends on order");
             Check(!session.TryGetProperty("game", out _), "session without a game id leaves it out");
             var gameSession = Parse(LogFormat.Session(12, 7.5, "0a1b2c3d4e5f"));
             Check(gameSession.GetProperty("game").GetString() == "0a1b2c3d4e5f", "session carries the game id");
@@ -82,6 +107,28 @@ namespace VoyageRecorder
                 && port.GetProperty("island").GetInt32() == 1, "port line names the port and its island");
             Check(port.GetProperty("lat").GetDouble() == 30.1234567 && port.GetProperty("portLon").GetDouble() == -2.45,
                 "port line has the island centre and the port position");
+
+            var keyed = Parse(LogFormat.Session(1, 6, "g", null, null, new RecorderKeys { Record = "J", Location = "V", Marker = "V + LeftShift" }));
+            Check(keyed.GetProperty("keys").GetProperty("record").GetString() == "J" && keyed.GetProperty("keys").GetProperty("marker").GetString() == "V + LeftShift",
+                "session line carries Voyage Recorder's keys");
+            var keysLine = Parse(LogFormat.KeysChanged(new RecorderKeys { Record = "K", Location = "V", Marker = "V + LeftShift" }));
+            Check(keysLine.GetProperty("type").GetString() == "keys" && keysLine.GetProperty("keys").GetProperty("record").GetString() == "K", "keys line when a key changes");
+
+            var depart = Parse(LogFormat.Depart(new PortDeparture { Day = 4, Hour = 11.25, Port = "Gold Rock City", Island = 1 }));
+            Check(depart.GetProperty("type").GetString() == "depart" && depart.GetProperty("port").GetString() == "Gold Rock City"
+                && depart.GetProperty("island").GetInt32() == 1 && depart.GetProperty("hour").GetDouble() == 11.25, "depart line names the port and time");
+
+            var note = Parse(LogFormat.Note(new Reading { Day = 5, Hour = 13.5, Lat = 31, Lon = -2, Boat = "dhow medium", Course = 90, Knots = 4 }, "abc123", "Whales here\nlots of them"));
+            Check(note.GetProperty("type").GetString() == "note" && note.GetProperty("id").GetString() == "abc123"
+                && note.GetProperty("text").GetString() == "Whales here\nlots of them" && note.GetProperty("boat").GetString() == "dhow medium"
+                && note.GetProperty("course").GetDouble() == 90 && note.GetProperty("lat").GetDouble() == 31, "note line has id, text and the reading's details");
+            Check(!note.TryGetProperty("event", out _), "a note isn't a mark");
+            var marked = Parse(LogFormat.Position(new Reading { Day = 5, Hour = 13.5, Lat = 31, Lon = -2, Event = "race-start", Id = "m1" }));
+            Check(marked.GetProperty("id").GetString() == "m1" && marked.GetProperty("event").GetString() == "race-start", "a mark carries its id");
+            var undo = Parse(LogFormat.Undo("m1"));
+            Check(undo.GetProperty("type").GetString() == "undo" && undo.GetProperty("id").GetString() == "m1", "an undo line names the mark it takes back");
+            var longNote = Parse(LogFormat.Note(new Reading(), "x", new string('a', LogFormat.MaxNoteLength + 50)));
+            Check(longNote.GetProperty("text").GetString().Length == LogFormat.MaxNoteLength, "long notes are cut to the limit");
 
             var heading = Parse(LogFormat.Mission(new MissionHint
             {

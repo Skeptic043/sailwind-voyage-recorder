@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2
+
+### Added
+- Press `Shift + V` to mark a race start, checkpoint or finish, write a note about where you are, or undo your last mark
+- Every port visit is now recorded, including returns to ports already visited, along with the rough time you leave
+- Recordings now include real time, the world you are sailing in (vanilla or your Scrambled Seas world), and the loaded mods for comparing and sharing voyages in Sailwind Chartroom
+
 ## 0.1.9
 
 ### Added

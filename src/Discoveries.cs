@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using BepInEx.Bootstrap;
 using BepInEx.Configuration;
@@ -96,27 +97,47 @@ namespace VoyageRecorder
             return hint;
         }
 
+        /// <summary>The world this game is played in, read once for each session line.</summary>
+        public static WorldInfo World() => ScrambledSeas.World();
+
+        /// <summary>Every loaded BepInEx plugin, read once for each session line.</summary>
+        public static List<LoadedPlugin> Plugins()
+        {
+            var plugins = new List<LoadedPlugin>();
+            foreach (var info in Chainloader.PluginInfos.Values)
+            {
+                if (info?.Metadata == null) continue;
+                plugins.Add(new LoadedPlugin { Guid = info.Metadata.GUID, Name = info.Metadata.Name, Version = info.Metadata.Version?.ToString() });
+            }
+            plugins.Sort((a, b) => string.CompareOrdinal(a.Guid, b.Guid));
+            return plugins;
+        }
+
         /// <summary>Scrambled Seas' settings and heading rule, found once by its plugin id.</summary>
         private static class ScrambledSeas
         {
             private const string PluginId = "com.nandbrew.scrambledseas";
             private static bool resolved;
+            private static bool present;
             private static ConfigFile config;
             private static MethodInfo headingDegrees;
             private static FieldInfo enabled;
             private static PropertyInfo saveContainer;
+            private static string version;
 
             private static void Resolve()
             {
                 if (resolved) return;
                 resolved = true;
                 if (!Chainloader.PluginInfos.TryGetValue(PluginId, out var info) || info.Instance == null) return;
+                present = true;
                 Assembly assembly = info.Instance.GetType().Assembly;
                 headingDegrees = assembly.GetType("ScrambledSeas.CompassRose")?.GetMethod("GetHeadingDegrees", BindingFlags.Public | BindingFlags.Static);
                 Type main = assembly.GetType("ScrambledSeas.Main");
                 enabled = main?.GetField("pluginEnabled", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
                 saveContainer = main?.GetProperty("saveContainer", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
                 config = info.Instance.Config;
+                version = info.Metadata.Version?.ToString();
                 if (headingDegrees == null || enabled == null)
                 {
                     Plugin.LogOnce("Scrambled Seas was found, but not the parts mission hints need, so missions aren't recorded.");
@@ -143,6 +164,56 @@ namespace VoyageRecorder
                 object container = saveContainer.GetValue(null, null);
                 if (!(container?.GetType().GetProperty("islandOffsets")?.GetValue(container, null) is Vector3[] offsets)) return null;
                 return island - 1 < offsets.Length ? offsets[island - 1] : Vector3.zero;
+            }
+
+            // A Scrambled Seas world is the settings its save keeps plus the island layout they produced; the layout's
+            // fingerprint tells worlds apart even if a later version builds the same settings differently. Vanilla
+            // when Scrambled Seas is absent or off for this game; null, logged, when its save can't be fully read,
+            // so an unreadable world is never written as vanilla or as another world.
+            public static WorldInfo World()
+            {
+                Resolve();
+                if (!present) return new WorldInfo();
+                // Whether it's on for this game is read here on its own, so a missing mission part can't make a
+                // Scrambled Seas world look vanilla.
+                if (!(enabled?.GetValue(null) is bool on))
+                {
+                    Plugin.LogOnce("Voyage Recorder could not tell whether Scrambled Seas is on, so recordings leave the world out.");
+                    return null;
+                }
+                if (!on) return new WorldInfo();
+                object container = saveContainer?.GetValue(null, null);
+                if (container == null)
+                {
+                    Plugin.LogOnce("Voyage Recorder could not read Scrambled Seas' world settings, so recordings leave the world out.");
+                    return null;
+                }
+                Type type = container.GetType();
+                var missing = new List<string>();
+                int Number(string name)
+                {
+                    if (type.GetProperty(name)?.GetValue(container, null) is int value) return value;
+                    missing.Add(name);
+                    return 0;
+                }
+                var offsets = new List<double>();
+                foreach (string name in new[] { "archOffsets", "islandOffsets" })
+                {
+                    if (type.GetProperty(name)?.GetValue(container, null) is Vector3[] vectors)
+                        foreach (Vector3 vector in vectors) offsets.AddRange(new double[] { vector.x, vector.y, vector.z });
+                    else missing.Add(name);
+                }
+                var world = new WorldInfo
+                {
+                    Scrambled = true, Seed = Number("worldScramblerSeed"), IslandSpread = Number("islandSpread"),
+                    MinArchipelagoSeparation = Number("minArchipelagoSeparation"), MinIslandSeparation = Number("minIslandSeparation"),
+                    LonMin = Number("worldLonMin"), LonMax = Number("worldLonMax"), LatMin = Number("worldLatMin"), LatMax = Number("worldLatMax"),
+                    BorderExpander = Number("borderExpander"), Scrambler = Number("version"), ScrambledSeas = version,
+                    Layout = LogFormat.LayoutFingerprint(offsets)
+                };
+                if (missing.Count == 0) return world;
+                Plugin.LogOnce("Voyage Recorder could not read Scrambled Seas' " + string.Join(", ", missing) + ", so recordings leave the world out.");
+                return null;
             }
 
             public static string HintKind => Setting("Destination Hint")?.ToString() ?? "";

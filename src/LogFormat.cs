@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
@@ -12,6 +13,8 @@ namespace VoyageRecorder
         public double Lat;
         public double Lon;
         public string Event;
+        // Recorded locations and race markers carry an id, so an undo can name the one it takes back.
+        public string Id;
         public string Boat;
         public double? Course;
         public double? Knots;
@@ -33,6 +36,52 @@ namespace VoyageRecorder
         public double PortLon;
         public double? OffsetLat;
         public double? OffsetLon;
+    }
+
+    /// <summary>A port left: written when the player moves out of reach of the port they arrived at.</summary>
+    internal struct PortDeparture
+    {
+        public int Day;
+        public double Hour;
+        public string Port;
+        public int Island;
+    }
+
+    /// <summary>
+    /// The world a session is played in: vanilla, or a Scrambled Seas world described by the settings in its save
+    /// and a fingerprint of the island layout those settings produced.
+    /// </summary>
+    internal sealed class WorldInfo
+    {
+        public bool Scrambled;
+        public int Seed;
+        public int IslandSpread;
+        public int MinArchipelagoSeparation;
+        public int MinIslandSeparation;
+        public int LonMin;
+        public int LonMax;
+        public int LatMin;
+        public int LatMax;
+        public int BorderExpander;
+        public int Scrambler;
+        public string ScrambledSeas;
+        public string Layout;
+    }
+
+    /// <summary>Voyage Recorder's own keys, as BepInEx writes them in its config ("J", "LeftControl + J").</summary>
+    internal struct RecorderKeys
+    {
+        public string Record;
+        public string Location;
+        public string Marker;
+    }
+
+    /// <summary>A loaded BepInEx plugin, by its id, name and version.</summary>
+    internal struct LoadedPlugin
+    {
+        public string Guid;
+        public string Name;
+        public string Version;
     }
 
     /// <summary>
@@ -69,26 +118,80 @@ namespace VoyageRecorder
         // Game speeds are metres per second; the game's own speedometer shows knots as m/s × 1.944.
         public const double KnotsPerMetrePerSecond = 1.944;
 
+        // Notes longer than this are cut; Chartroom keeps up to the same length.
+        public const int MaxNoteLength = 20000;
+
         private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
+        private static readonly DateTime Epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        /// <summary>Real time for each line's <c>utc</c>. Tests replace it.</summary>
+        public static Func<DateTime> Now = () => DateTime.UtcNow;
 
         public static string Header(string modVersion, int slot) =>
             new Line("header").Text("format", Format).Int("version", Version).Text("mod", modVersion).Int("slot", slot).End();
 
-        public static string Session(int day, double hour, string game) =>
-            new Line("session").Int("day", day).Number("hour", hour, 4).Text("game", game).End();
+        public static string Session(int day, double hour, string game, WorldInfo world = null, IList<LoadedPlugin> plugins = null, RecorderKeys? keys = null)
+        {
+            var line = new Line("session").Int("day", day).Number("hour", hour, 4).Text("game", game);
+            if (keys.HasValue) line.Object("keys", Keys(keys.Value));
+            if (world != null) line.Object("world", World(world));
+            if (plugins != null)
+            {
+                var entries = new List<Line>(plugins.Count);
+                foreach (LoadedPlugin plugin in plugins)
+                    entries.Add(new Line().Text("guid", plugin.Guid).Text("name", plugin.Name).Text("version", plugin.Version));
+                line.Array("plugins", entries);
+            }
+            return line.End();
+        }
 
-        public static string Position(Reading reading) =>
-            new Line("position").Int("day", reading.Day).Number("hour", reading.Hour, 4)
+        /// <summary>Written when the player changes one of Voyage Recorder's keys during a session.</summary>
+        public static string KeysChanged(RecorderKeys keys) => new Line("keys").Object("keys", Keys(keys)).End();
+
+        private static Line Keys(RecorderKeys keys) =>
+            new Line().Text("record", keys.Record).Text("location", keys.Location).Text("marker", keys.Marker);
+
+        private static Line World(WorldInfo world)
+        {
+            if (!world.Scrambled) return new Line().Text("kind", "vanilla");
+            return new Line().Text("kind", "scrambled").Int("seed", world.Seed)
+                .Int("islandSpread", world.IslandSpread).Int("minArchipelagoSeparation", world.MinArchipelagoSeparation)
+                .Int("minIslandSeparation", world.MinIslandSeparation)
+                .Int("lonMin", world.LonMin).Int("lonMax", world.LonMax).Int("latMin", world.LatMin).Int("latMax", world.LatMax)
+                .Int("borderExpander", world.BorderExpander).Int("scrambler", world.Scrambler)
+                .Text("scrambledSeas", world.ScrambledSeas).Text("layout", world.Layout);
+        }
+
+        public static string Position(Reading reading) => ReadingFields(new Line("position"), reading).End();
+
+        /// <summary>A note the player wrote, with the reading taken when they opened the note box.</summary>
+        public static string Note(Reading reading, string id, string text)
+        {
+            string kept = text ?? "";
+            if (kept.Length > MaxNoteLength) kept = kept.Substring(0, MaxNoteLength);
+            reading.Id = id;
+            return ReadingFields(new Line("note"), reading).Text("text", kept).End();
+        }
+
+        /// <summary>Takes back the recorded location or race marker with this id.</summary>
+        public static string Undo(string id) => new Line("undo").Text("id", id).End();
+
+        private static Line ReadingFields(Line line, Reading reading) =>
+            line.Text("id", reading.Id).Int("day", reading.Day).Number("hour", reading.Hour, 4)
                 .Number("lat", reading.Lat, 7).Number("lon", reading.Lon, 7)
                 .Text("event", reading.Event).Text("boat", reading.Boat)
                 .Number("course", reading.Course, 1).Number("knots", reading.Knots, 1)
                 .Number("windFrom", reading.WindFrom, 1).Number("windKnots", reading.WindKnots, 1)
-                .Int("hull", reading.Hull).End();
+                .Int("hull", reading.Hull);
 
         public static string Port(PortVisit visit) =>
             new Line("port").Int("day", visit.Day).Number("hour", visit.Hour, 4).Text("port", visit.Port).Int("island", visit.Island)
                 .Number("lat", visit.Lat, 7).Number("lon", visit.Lon, 7).Number("portLat", visit.PortLat, 7).Number("portLon", visit.PortLon, 7)
                 .Number("offsetLat", visit.OffsetLat, 7).Number("offsetLon", visit.OffsetLon, 7).End();
+
+        public static string Depart(PortDeparture departure) =>
+            new Line("depart").Int("day", departure.Day).Number("hour", departure.Hour, 4)
+                .Text("port", departure.Port).Int("island", departure.Island).End();
 
         public static string Mission(MissionHint mission) =>
             new Line("mission").Int("day", mission.Day).Number("hour", mission.Hour, 4)
@@ -98,6 +201,25 @@ namespace VoyageRecorder
                 .Number("heading", mission.Heading, 4).Int("points", mission.Points)
                 .Number("approxLat", mission.ApproxLat, 6).Number("approxLon", mission.ApproxLon, 6).Int("decimals", mission.Decimals)
                 .Int("miles", mission.Miles).End();
+
+        /// <summary>
+        /// A short fingerprint of an island layout: FNV-1a over every offset rounded to whole metres, as 16 hex
+        /// digits. The same layout always gives the same fingerprint, whatever settings or version produced it.
+        /// </summary>
+        public static string LayoutFingerprint(IEnumerable<double> offsetsMetres)
+        {
+            ulong hash = 14695981039346656037UL;
+            foreach (double value in offsetsMetres)
+            {
+                long rounded = (long)Math.Round(value);
+                for (int i = 0; i < 8; i++)
+                {
+                    hash ^= (byte)(rounded >> (i * 8));
+                    hash *= 1099511628211UL;
+                }
+            }
+            return hash.ToString("x16", Invariant);
+        }
 
         /// <summary>
         /// The compass bearing, 0 to under 360 degrees, of a horizontal direction given by its east and
@@ -145,16 +267,33 @@ namespace VoyageRecorder
             return true;
         }
 
-        /// <summary>One JSON line. Null values are left out.</summary>
+        /// <summary>One JSON line, or an object inside one. Null values are left out.</summary>
         private sealed class Line
         {
             private readonly StringBuilder text = new StringBuilder(200);
+            private bool empty = true;
 
-            public Line(string type) => text.Append("{\"type\":").Append(Quote(type));
+            // Every line starts with its type and the real time it was written.
+            public Line(string type)
+            {
+                text.Append("{\"type\":").Append(Quote(type));
+                empty = false;
+                Number("utc", (Now() - Epoch).TotalSeconds, 3);
+            }
+
+            // An object nested in a line.
+            public Line() => text.Append('{');
+
+            private StringBuilder Name(string name)
+            {
+                if (!empty) text.Append(',');
+                empty = false;
+                return text.Append('"').Append(name).Append("\":");
+            }
 
             public Line Int(string name, int? value)
             {
-                if (value.HasValue) text.Append(",\"").Append(name).Append("\":").Append(value.Value.ToString(Invariant));
+                if (value.HasValue) Name(name).Append(value.Value.ToString(Invariant));
                 return this;
             }
 
@@ -164,15 +303,37 @@ namespace VoyageRecorder
                 double rounded = Math.Round(value.Value, decimals);
                 // Never write "-0".
                 if (rounded == 0) rounded = 0;
-                text.Append(",\"").Append(name).Append("\":").Append(rounded.ToString("0." + new string('#', decimals), Invariant));
+                Name(name).Append(rounded.ToString("0." + new string('#', decimals), Invariant));
                 return this;
             }
 
             public Line Text(string name, string value)
             {
-                if (!string.IsNullOrEmpty(value)) text.Append(",\"").Append(name).Append("\":").Append(Quote(value));
+                if (!string.IsNullOrEmpty(value)) Name(name).Append(Quote(value));
                 return this;
             }
+
+            public Line Object(string name, Line value)
+            {
+                Name(name).Append(value.Close());
+                return this;
+            }
+
+            public Line Array(string name, IEnumerable<Line> values)
+            {
+                StringBuilder builder = Name(name).Append('[');
+                bool first = true;
+                foreach (Line value in values)
+                {
+                    if (!first) builder.Append(',');
+                    first = false;
+                    builder.Append(value.Close());
+                }
+                builder.Append(']');
+                return this;
+            }
+
+            private string Close() => text.Append('}').ToString();
 
             public string End() => text.Append("}\n").ToString();
         }

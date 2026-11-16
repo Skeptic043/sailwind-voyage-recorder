@@ -14,13 +14,14 @@ namespace VoyageRecorder
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Id = "com.skeptic043.sailwind.voyagerecorder";
-        public const string Version = "0.1.9";
+        public const string Version = "0.2.2";
 
         private static Plugin instance;
         private static ManualLogSource log;
 
         private ConfigEntry<KeyboardShortcut> recordKey;
         private ConfigEntry<KeyboardShortcut> locationKey;
+        private ConfigEntry<KeyboardShortcut> markerKey;
         private ConfigEntry<int> interval;
         private ConfigEntry<bool> sleepReadings;
         private ConfigEntry<bool> duringSleep;
@@ -42,10 +43,18 @@ namespace VoyageRecorder
         // Made the first time it is shown.
         private RecordingDot dot;
         private bool writeFailed;
+        // The note box while it's open.
+        private NoteBox noteBox;
+        // The marker menu while it's open.
+        private MarkerMenu markerMenu;
+        // The latest recorded location or race marker this session, which the marker menu can undo.
+        // Where the position before it was written, so undoing it doesn't hold back the next timed reading.
+        private (string Id, string Label, Vector3? Before)? lastMark;
         // Where the last position was written this session; a timed reading closer than StillMetres to it is skipped.
         private Vector3? lastWritten;
-        // Ports and missions already written this session; Chartroom skips repeats across sessions itself.
-        private readonly HashSet<int> writtenPorts = new HashSet<int>();
+        // The port the player last arrived at and hasn't left yet. Arriving again needs leaving its reach first.
+        private Port atPort;
+        // Missions already written this session; Chartroom skips repeats across sessions itself.
         // Missions by origin and destination: a port's board makes new missions each visit, all with the same hint.
         private readonly HashSet<string> writtenMissions = new HashSet<string>();
         private static readonly HashSet<string> logged = new HashSet<string>();
@@ -65,6 +74,8 @@ namespace VoyageRecorder
                 "Press to start or stop recording.");
             locationKey = Config.Bind("Controls", "Location key", new KeyboardShortcut(KeyCode.V),
                 "Press to record your location once, whether or not you're recording.");
+            markerKey = Config.Bind("Controls", "Marker menu key", new KeyboardShortcut(KeyCode.V, KeyCode.LeftShift),
+                "Press to mark a race start, checkpoint or finish, write a note about where you are, or undo your last mark, whether or not you're recording.");
             interval = Config.Bind("Recording", "Interval", 60, new ConfigDescription(
                 "Seconds between readings while recording, in game time.",
                 new AcceptableValueRange<int>(10, 600)));
@@ -87,6 +98,9 @@ namespace VoyageRecorder
                 "The corner the dot sits in.", null, new ConfigurationManagerAttributes { Order = 2 }));
             dotSize = Config.Bind("Recording dot", "Size", DotSize.Small, new ConfigDescription(
                 "How big the dot is.", null, new ConfigurationManagerAttributes { Order = 1 }));
+            recordKey.SettingChanged += (_, __) => KeysChanged();
+            locationKey.SettingChanged += (_, __) => KeysChanged();
+            markerKey.SettingChanged += (_, __) => KeysChanged();
             showDot.SettingChanged += (_, __) => UpdateDot();
             dotCorner.SettingChanged += (_, __) => UpdateDot();
             dotSize.SettingChanged += (_, __) => UpdateDot();
@@ -103,13 +117,38 @@ namespace VoyageRecorder
             if (!Input.anyKeyDown) return;
             bool record = Pressed(recordKey.Value);
             bool location = Pressed(locationKey.Value);
-            if ((!record && !location) || !GameState.playing || GameState.inCursorMenu) return;
+            bool marker = Pressed(markerKey.Value);
+            // The marker menu's key is usually the location key with a modifier, which also matches the location key.
+            if (marker) location = false;
+            // While the note box or marker menu is open, keys are typing or choosing, not commands.
+            if ((!record && !location && !marker) || noteBox != null || markerMenu != null || !GameState.playing || GameState.inCursorMenu) return;
             if (record)
             {
                 if (recording) StopRecording();
                 else StartRecording();
             }
             if (location) RecordLocation();
+            if (marker) OpenMarkerMenu();
+        }
+
+        private RecorderKeys Keys => new RecorderKeys
+        {
+            Record = recordKey.Value.ToString(), Location = locationKey.Value.ToString(), Marker = markerKey.Value.ToString()
+        };
+
+        // A key changed in Configuration Manager reaches Chartroom's keybinding overlay on the next line it reads.
+        // Outside a session, the next session line carries the new keys anyway.
+        private void KeysChanged()
+        {
+            if (sessionPending || !CanRead) return;
+            try
+            {
+                Write(LogFormat.KeysChanged(Keys), GameState.day, Sun.sun.globalTime);
+            }
+            catch (Exception exception)
+            {
+                ReadingFailed(exception);
+            }
         }
 
         private static bool Pressed(KeyboardShortcut key)
@@ -126,7 +165,7 @@ namespace VoyageRecorder
             if (!CanRead) return;
             try
             {
-                WritePosition("mark", GameState.currentBoat, PlayerGlobe());
+                WriteMark("mark", "Location", GameState.currentBoat, PlayerGlobe());
                 Notify("Location recorded");
             }
             catch (Exception exception)
@@ -135,8 +174,81 @@ namespace VoyageRecorder
             }
         }
 
+        // A race marker is a recorded location with its own event, written whether or not you're recording.
+        private void OpenMarkerMenu()
+        {
+            if (!CanRead || markerMenu != null) return;
+            markerMenu = MarkerMenu.Open(this, lastMark?.Label.ToLowerInvariant(), choice =>
+            {
+                markerMenu = null;
+                if (choice == "note")
+                {
+                    OpenNote();
+                    return;
+                }
+                if (!CanRead) return;
+                try
+                {
+                    if (choice == "undo")
+                    {
+                        if (lastMark == null) return;
+                        Write(LogFormat.Undo(lastMark.Value.Id), GameState.day, Sun.sun.globalTime);
+                        Notify(lastMark.Value.Label + " removed");
+                        lastWritten = lastMark.Value.Before;
+                        lastMark = null;
+                        return;
+                    }
+                    foreach (var option in MarkerMenu.Choices)
+                    {
+                        if (option.Event != choice) continue;
+                        WriteMark(choice, option.Label, GameState.currentBoat, PlayerGlobe());
+                        Notify(option.Label + " recorded");
+                    }
+                }
+                catch (Exception exception)
+                {
+                    ReadingFailed(exception);
+                }
+            });
+        }
+
+        // The note keeps the reading from when the box opened, the place it's about, and is written on Save.
+        private void OpenNote()
+        {
+            if (!CanRead || noteBox != null) return;
+            try
+            {
+                Reading reading = TakeReading(null, GameState.currentBoat, PlayerGlobe());
+                noteBox = NoteBox.Open(this, text => WriteNote(reading, text));
+            }
+            catch (Exception exception)
+            {
+                ReadingFailed(exception);
+            }
+        }
+
+        // False when the note couldn't be written, so the box stays open with the text still in it.
+        private bool WriteNote(Reading reading, string text)
+        {
+            try
+            {
+                string id = Guid.NewGuid().ToString("N").Substring(0, 12);
+                Write(LogFormat.Note(reading, id, text), reading.Day, reading.Hour);
+                Notify("Note saved");
+                return true;
+            }
+            catch (Exception exception)
+            {
+                ReadingFailed(exception);
+                return false;
+            }
+        }
+
         private void StartRecording()
         {
+            // Leaving while recording was off isn't seen; forget that port rather than time its departure now.
+            // Still there, it stays the port you're at, so restarting doesn't record a second arrival.
+            if (atPort != null && Vector3.Distance(atPort.transform.position, Refs.observerMirror.transform.position) > PortReachMetres) atPort = null;
             recording = true;
             Record("start");
             StartTimer();
@@ -229,6 +341,17 @@ namespace VoyageRecorder
         // Speed over ground as the game's speedometer shows it.
         private static double Knots(Vector3 velocity) => new Vector2(velocity.x, velocity.z).magnitude * LogFormat.KnotsPerMetrePerSecond;
 
+        // A recorded location or race marker, with an id so the marker menu can undo the latest one.
+        private void WriteMark(string eventName, string label, Transform boat, Vector3 globe)
+        {
+            Reading reading = TakeReading(eventName, boat, globe);
+            reading.Id = Guid.NewGuid().ToString("N").Substring(0, 12);
+            Vector3? before = lastWritten;
+            Write(LogFormat.Position(reading), reading.Day, reading.Hour);
+            lastWritten = globe;
+            lastMark = (reading.Id, label, before);
+        }
+
         private void WritePosition(string eventName, Transform boat, Vector3 globe)
         {
             Reading reading = TakeReading(eventName, boat, globe);
@@ -272,19 +395,26 @@ namespace VoyageRecorder
             return reading;
         }
 
-        // A port is written the first time you stop near it in a session. The game keeps the last port visited
-        // in the save, so a port is only taken while you're near it now.
+        // An arrival is written when you stop near a port, and a departure when you then move out of its reach, so
+        // every visit is timed, including returns to the same port. The game keeps the last port visited in the
+        // save, so a port is only taken while you're near it now.
         private void RecordPort(Transform boat)
         {
+            int day = GameState.day;
+            double hour = Sun.sun.globalTime;
+            if (atPort != null)
+            {
+                if (Vector3.Distance(atPort.transform.position, Refs.observerMirror.transform.position) <= PortReachMetres) return;
+                Write(LogFormat.Depart(new PortDeparture { Day = day, Hour = hour, Port = atPort.GetPortName(), Island = Discoveries.IslandOf(atPort) }), day, hour);
+                atPort = null;
+            }
             Port port = GameState.lastVisitedPort;
-            if (port == null || writtenPorts.Contains(port.portIndex)) return;
+            if (port == null) return;
             Rigidbody body = boat == null ? null : BoatRoot(boat).GetComponent<Rigidbody>();
             if (body != null && Knots(body.velocity) >= StoppedKnots) return;
             if (Vector3.Distance(port.transform.position, Refs.observerMirror.transform.position) > PortReachMetres) return;
-            int day = GameState.day;
-            double hour = Sun.sun.globalTime;
             Write(LogFormat.Port(Discoveries.Visit(port, day, hour)), day, hour);
-            writtenPorts.Add(port.portIndex);
+            atPort = port;
         }
 
         // Only when a mission list shows, in the mission book or on a port's board: each origin and destination
@@ -333,12 +463,26 @@ namespace VoyageRecorder
                 Directory.CreateDirectory(folder);
                 text += LogFormat.Header(Version, SaveSlots.currentSlot);
             }
-            if (sessionPending) text += LogFormat.Session(day, hour, GameId);
+            if (sessionPending) text += LogFormat.Session(day, hour, GameId, Optional(Discoveries.World, "the world"), Optional(Discoveries.Plugins, "the loaded mods"), Keys);
             text += line;
             // Opened, appended and closed each time, so Chartroom can read while the game writes.
             File.AppendAllText(path, text);
             sessionPending = false;
             writeFailed = false;
+        }
+
+        // A session detail that can't be read is left out of the session line, and the line is still written.
+        private static T Optional<T>(Func<T> read, string what) where T : class
+        {
+            try
+            {
+                return read();
+            }
+            catch (Exception exception)
+            {
+                LogOnce($"Voyage Recorder could not read {what}: {exception}");
+                return null;
+            }
         }
 
         // Recording is off after every load and new game, and the next reading starts a new session.
@@ -350,7 +494,12 @@ namespace VoyageRecorder
             instance.UpdateDot();
             instance.sessionPending = true;
             instance.lastWritten = null;
-            instance.writtenPorts.Clear();
+            instance.atPort = null;
+            if (instance.noteBox != null) instance.noteBox.Close();
+            instance.noteBox = null;
+            if (instance.markerMenu != null) instance.markerMenu.Close();
+            instance.markerMenu = null;
+            instance.lastMark = null;
             instance.writtenMissions.Clear();
         }
 
