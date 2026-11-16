@@ -1,6 +1,6 @@
 # Voyage Recorder
 
-A companion mod for [Sailwind Chartroom](https://github.com/Skeptic043/sailwind-chartroom/releases/latest) that records your location so Chartroom can draw your course automatically.
+A companion mod for [Sailwind Chartroom](https://github.com/Skeptic043/sailwind-chartroom/releases/latest) that records your location so Chartroom can draw your course automatically, and lets you publish your routes and races on [Chartroom Voyages](https://skeptic043.github.io/sailwind-chartroom-voyages/).
 
 ## Install
 
