@@ -6,7 +6,7 @@ A companion mod for [Sailwind Chartroom](https://github.com/Skeptic043/sailwind-
 
 ### Mod managers
 
-Install Voyage Recorder through [Sailwind Mod Synchronizer](https://github.com/foxyv/SailwindModSynchronizer/releases/latest), then launch Sailwind through it.
+Install Voyage Recorder through [Sailwind Mod Synchronizer](https://github.com/foxyv/SailwindModSynchronizer/releases/latest), r2modman or Thunderstore Mod Manager, then launch Sailwind through your manager. Dependencies are installed automatically.
 
 ### Manual installation
 
@@ -43,7 +43,7 @@ Settings can be changed after the first launch in `BepInEx/config/com.skeptic043
 
 ## Compatibility
 
-No known incompatibilities. The `Missions` setting only functions in Scrambled Seas[link to the repo here please] worlds with its destination hint turned on.
+No known incompatibilities. The `Missions` setting only functions in [Scrambled Seas](https://github.com/NANDbrew/scrambled-seas) worlds with its destination hint turned on.
 
 ## Credits
 
