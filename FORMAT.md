@@ -74,7 +74,7 @@ A regular reading is skipped when the player is less than 10 metres (about a six
 
 ### port
 
-Written whenever the player stops at a port while recording: either ashore, or aboard and travelling below 1 knot, within reach of a port the game counts as visited. From 0.2.0, every visit is written. After a `depart` line, the next stop at the same port is a new arrival. Before 0.2.0, only the first visit during a session was written.
+From 0.2.7, written while recording when the player's boat ties a line to a dock cleat belonging to a port. Additional lines at the same port count as one visit until departure. Earlier versions inferred arrivals from stopping near a port. Before 0.2.0, only the first visit during a session was written.
 
 ```json
 {"type":"port","day":12,"hour":9.5,"port":"Gold Rock City","island":1,"lat":30.1234567,"lon":-2.5,"portLat":30.2,"portLon":-2.45,"offsetLat":-1,"offsetLon":2.4}
@@ -83,20 +83,40 @@ Written whenever the player stops at a port while recording: either ashore, or a
 | Field | Meaning |
 | --- | --- |
 | `port` | The port's name as the game shows it. |
-| `island` | The game's island number, from its `island N` scene object, or -1 when none was found. |
+| `island` | The game's island number, or -1 when none was found. From 0.2.6 this comes from the port's registered island owner. |
 | `lat`, `lon` | The island's centre in the game. |
 | `portLat`, `portLon` | The port itself. |
 | `offsetLat`, `offsetLon` | How far the island was moved from where the game normally places it, in degrees: Scrambled Seas' offset, or 0 without it. A chart can move its own outline of the island by this, as for an imported Scrambled Seas world. Left out when it couldn't be read. |
 
 ### depart
 
-From 0.2.0. Written while recording when the player moves more than 1500 metres from the port where they last arrived.
+From 0.2.0. Written while recording when the player moves more than 1500 metres from the port where they last arrived. From 0.2.7, docking at another port can close the preceding visit earlier.
 
 ```json
 {"type":"depart","utc":1794744000.5,"day":12,"hour":11.25,"port":"Gold Rock City","island":1}
 ```
 
 `port` and `island` have the same meanings as in a `port` line.
+
+### landfall
+
+From 0.2.3. While recording, Voyage Recorder checks the ground under the player every three seconds at normal play speed and writes a visit after two consecutive checks on the same island. Starting a recording ashore establishes the current island. Using the Location key ashore can record the visit immediately, including while recording is off. Both checks share the same visit tracking. From 0.2.6 they require contact out of shallow water. Brief landings and departures can be missed between checks.
+
+```json
+{"type":"landfall","utc":1794744000.5,"day":12,"hour":9.5,"source":"terra-incognita","islandId":"terra incognita Atoll (route) #12","name":"Atoll (route) #12","lat":30.201,"lon":-2.451,"islandLat":30.205,"islandLon":-2.455}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `source` | `native` for registered islands, including those moved by Scrambled Seas, or `terra-incognita` for generated islands. |
+| `islandId` | The registered island number as a string for `native`, or the full generated island root name for `terra-incognita`. |
+| `name` | The island's label when available. |
+| `day`, `hour`, `lat`, `lon` | The game time and player's globe coordinates when the visit was confirmed. |
+| `islandLat`, `islandLon` | The island root's globe coordinates. Compare these with a small tolerance for floating-point shifts when grouping visits by `source` and `islandId` within a game and world layout. A generated layout can reuse a name at a different location. If `session.game` is unavailable, group within the session. |
+| `offsetLat`, `offsetLon` | From 0.2.4 for registered islands. The same island move as in a `port` line, in degrees. Left out for generated islands or when the offset could not be read. |
+| `prefab`, `yaw` | From 0.2.8 for Terra Incognita when the terrain identifies the variant. `prefab` is its asset name, for example `stacks_13`. `yaw` is a clockwise turn of 0, 90, 180 or 270 degrees around the island root, with north turning toward east. Both fields are optional. |
+
+`landfall` is a visit record. A `position` mark made by the Location key has its own `id` and can be undone independently.
 
 ### note
 

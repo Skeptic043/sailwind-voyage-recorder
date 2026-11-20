@@ -47,6 +47,24 @@ namespace VoyageRecorder
         public int Island;
     }
 
+    /// <summary>An island visited, with the player's position and the island root's position.</summary>
+    internal struct LandfallVisit
+    {
+        public int Day;
+        public double Hour;
+        public string Source;
+        public string IslandId;
+        public string Name;
+        public double Lat;
+        public double Lon;
+        public double IslandLat;
+        public double IslandLon;
+        public double? OffsetLat;
+        public double? OffsetLon;
+        public string Prefab;
+        public int? Yaw;
+    }
+
     /// <summary>
     /// The world a session is played in: vanilla, or a Scrambled Seas world described by the settings in its save
     /// and a fingerprint of the island layout those settings produced.
@@ -192,6 +210,14 @@ namespace VoyageRecorder
         public static string Depart(PortDeparture departure) =>
             new Line("depart").Int("day", departure.Day).Number("hour", departure.Hour, 4)
                 .Text("port", departure.Port).Int("island", departure.Island).End();
+
+        public static string Landfall(LandfallVisit visit) =>
+            new Line("landfall").Int("day", visit.Day).Number("hour", visit.Hour, 4)
+                .Text("source", visit.Source).Text("islandId", visit.IslandId).Text("name", visit.Name)
+                .Number("lat", visit.Lat, 7).Number("lon", visit.Lon, 7)
+                .Number("islandLat", visit.IslandLat, 7).Number("islandLon", visit.IslandLon, 7)
+                .Text("prefab", visit.Prefab).Int("yaw", visit.Yaw)
+                .Number("offsetLat", visit.OffsetLat, 7).Number("offsetLon", visit.OffsetLon, 7).End();
 
         public static string Mission(MissionHint mission) =>
             new Line("mission").Int("day", mission.Day).Number("hour", mission.Hour, 4)

@@ -11,10 +11,10 @@ using UnityEngine;
 namespace VoyageRecorder
 {
     [BepInPlugin(Id, "Voyage Recorder", Version)]
-    public sealed class Plugin : BaseUnityPlugin
+    public sealed partial class Plugin : BaseUnityPlugin
     {
         public const string Id = "com.skeptic043.sailwind.voyagerecorder";
-        public const string Version = "0.2.2";
+        public const string Version = "0.2.8";
 
         private static Plugin instance;
         private static ManualLogSource log;
@@ -31,6 +31,7 @@ namespace VoyageRecorder
         private ConfigEntry<bool> recordWind;
         private ConfigEntry<bool> recordHull;
         private ConfigEntry<bool> recordPorts;
+        private ConfigEntry<bool> recordLandfalls;
         private ConfigEntry<bool> recordMissions;
         private ConfigEntry<bool> showDot;
         private ConfigEntry<DotCorner> dotCorner;
@@ -40,6 +41,8 @@ namespace VoyageRecorder
         // A session line goes before the first reading after each load or new game.
         private bool sessionPending = true;
         private Coroutine timer;
+        private Coroutine landfallTimer;
+        private readonly IslandLandfalls landfalls = new IslandLandfalls();
         // Made the first time it is shown.
         private RecordingDot dot;
         private bool writeFailed;
@@ -52,19 +55,14 @@ namespace VoyageRecorder
         private (string Id, string Label, Vector3? Before)? lastMark;
         // Where the last position was written this session; a timed reading closer than StillMetres to it is skipped.
         private Vector3? lastWritten;
-        // The port the player last arrived at and hasn't left yet. Arriving again needs leaving its reach first.
-        private Port atPort;
         // Missions already written this session; Chartroom skips repeats across sessions itself.
         // Missions by origin and destination: a port's board makes new missions each visit, all with the same hint.
         private readonly HashSet<string> writtenMissions = new HashSet<string>();
         private static readonly HashSet<string> logged = new HashSet<string>();
 
-        // The game notes a port as visited within 1000 m of its recovery point. A port counts as reached only
-        // while you're that close to it and stopped, ashore or aboard below this speed.
-        private const float PortReachMetres = 1500f;
-        private const double StoppedKnots = 1.0;
         // Under a sixth of a chart mile, so a skipped reading changes nothing on the chart.
         private const float StillMetres = 10f;
+        private const float LandfallIntervalSeconds = 3f;
 
         private void Awake()
         {
@@ -89,7 +87,9 @@ namespace VoyageRecorder
             recordCourse = Config.Bind("Details", "Course and speed", true, "Record the boat's course and speed.");
             recordWind = Config.Bind("Details", "Wind", true, "Record the wind's direction and strength.");
             recordHull = Config.Bind("Details", "Hull damage", true, "Record the hull damage of the boat you're aboard, in percent.");
-            recordPorts = Config.Bind("Details", "Port visits", true, "Record each port you stop at.");
+            recordPorts = Config.Bind("Details", "Port visits", true, "Record port arrivals when you tie your boat to a dock cleat, and departures after leaving.");
+            recordLandfalls = Config.Bind("Details", "Island landfalls", true,
+                "Record when you step ashore while recording or use the Location key on an island.");
             recordMissions = Config.Bind("Details", "Missions", true,
                 "Record the missions you see in your mission book or on a port's mission board, with the heading or coordinates Scrambled Seas shows, so Chartroom can draw search areas. Needs Scrambled Seas giving a destination hint.");
             showDot = Config.Bind("Recording dot", "Show", false, new ConfigDescription(
@@ -106,6 +106,12 @@ namespace VoyageRecorder
             dotSize.SettingChanged += (_, __) => UpdateDot();
             interval.SettingChanged += (_, __) => StartTimer();
             duringSleep.SettingChanged += (_, __) => { if (GameState.sleeping) StartTimer(); };
+            recordLandfalls.SettingChanged += (_, __) =>
+            {
+                StopLandfallTimer();
+                landfalls.Rebaseline();
+                StartLandfallTimer();
+            };
 
             new Harmony(Id).PatchAll(typeof(Plugin).Assembly);
             Logger.LogInfo("Voyage Recorder loaded.");
@@ -167,6 +173,7 @@ namespace VoyageRecorder
             {
                 WriteMark("mark", "Location", GameState.currentBoat, PlayerGlobe());
                 Notify("Location recorded");
+                if (recordLandfalls.Value) ReadLandfall(manual: true);
             }
             catch (Exception exception)
             {
@@ -248,10 +255,11 @@ namespace VoyageRecorder
         {
             // Leaving while recording was off isn't seen; forget that port rather than time its departure now.
             // Still there, it stays the port you're at, so restarting doesn't record a second arrival.
-            if (atPort != null && Vector3.Distance(atPort.transform.position, Refs.observerMirror.transform.position) > PortReachMetres) atPort = null;
+            if (HasLeftPort()) atPort = null;
             recording = true;
             Record("start");
             StartTimer();
+            StartLandfallTimer();
             UpdateDot();
             Notify("Recording");
         }
@@ -261,6 +269,8 @@ namespace VoyageRecorder
             Record("stop");
             recording = false;
             StopTimer();
+            StopLandfallTimer();
+            landfalls.Rebaseline();
             UpdateDot();
             Notify("Stopped recording");
         }
@@ -292,6 +302,53 @@ namespace VoyageRecorder
             }
         }
 
+        private void StartLandfallTimer()
+        {
+            if (recording && recordLandfalls.Value && !GameState.sleeping && landfallTimer == null)
+                landfallTimer = StartCoroutine(ReadLandfalls());
+        }
+
+        private void StopLandfallTimer()
+        {
+            if (landfallTimer != null) StopCoroutine(landfallTimer);
+            landfallTimer = null;
+            landfalls.ClearPending();
+        }
+
+        private IEnumerator ReadLandfalls()
+        {
+            var wait = new WaitForSeconds(LandfallIntervalSeconds);
+            while (true)
+            {
+                ReadLandfall();
+                yield return wait;
+            }
+        }
+
+        private void ReadLandfall(bool manual = false)
+        {
+            if (!CanRead || GameState.justStarted || GameState.recovering)
+            {
+                landfalls.Reset();
+                return;
+            }
+            if (GameState.sleeping) return;
+
+            try
+            {
+                IslandHorizon island = Discoveries.ConfirmLandfall(landfalls, manual);
+                if (island == null) return;
+
+                LandfallVisit visit = Discoveries.Landfall(island, GameState.day, Sun.sun.globalTime, PlayerGlobe());
+                Write(LogFormat.Landfall(visit), visit.Day, visit.Hour);
+                landfalls.Recorded(island.GetInstanceID());
+            }
+            catch (Exception exception)
+            {
+                ReadingFailed(exception);
+            }
+        }
+
         private void UpdateDot()
         {
             if (recording && showDot.Value) (dot ??= new RecordingDot(this)).Show(dotCorner.Value, dotSize.Value);
@@ -305,7 +362,7 @@ namespace VoyageRecorder
 
         private static bool CanRead => GameState.playing && !GameState.currentlyLoading;
 
-        // A reading while recording: timed (no event name) or for an event, plus the port check that rides on it.
+        // A reading while recording: timed (no event name) or for an event, plus an approximate port departure.
         private void Record(string eventName)
         {
             if (!recording || !CanRead) return;
@@ -316,7 +373,7 @@ namespace VoyageRecorder
                 // Timed readings while standing still add nothing; start, stop, sleep and wake are always written.
                 bool still = eventName == null && lastWritten.HasValue && GlobeMetres(lastWritten.Value, globe) < StillMetres;
                 if (!still && (boat != null || !onlyAboard.Value)) WritePosition(eventName, boat, globe);
-                if (recordPorts.Value) RecordPort(boat);
+                if (recordPorts.Value) RecordPortDeparture();
             }
             catch (Exception exception)
             {
@@ -395,28 +452,6 @@ namespace VoyageRecorder
             return reading;
         }
 
-        // An arrival is written when you stop near a port, and a departure when you then move out of its reach, so
-        // every visit is timed, including returns to the same port. The game keeps the last port visited in the
-        // save, so a port is only taken while you're near it now.
-        private void RecordPort(Transform boat)
-        {
-            int day = GameState.day;
-            double hour = Sun.sun.globalTime;
-            if (atPort != null)
-            {
-                if (Vector3.Distance(atPort.transform.position, Refs.observerMirror.transform.position) <= PortReachMetres) return;
-                Write(LogFormat.Depart(new PortDeparture { Day = day, Hour = hour, Port = atPort.GetPortName(), Island = Discoveries.IslandOf(atPort) }), day, hour);
-                atPort = null;
-            }
-            Port port = GameState.lastVisitedPort;
-            if (port == null) return;
-            Rigidbody body = boat == null ? null : BoatRoot(boat).GetComponent<Rigidbody>();
-            if (body != null && Knots(body.velocity) >= StoppedKnots) return;
-            if (Vector3.Distance(port.transform.position, Refs.observerMirror.transform.position) > PortReachMetres) return;
-            Write(LogFormat.Port(Discoveries.Visit(port, day, hour)), day, hour);
-            atPort = port;
-        }
-
         // Only when a mission list shows, in the mission book or on a port's board: each origin and destination
         // once a session, as its mission screen describes it. Recording needn't be on: Chartroom reads the whole
         // log when it starts following.
@@ -491,6 +526,8 @@ namespace VoyageRecorder
             if (instance == null) return;
             instance.recording = false;
             instance.StopTimer();
+            instance.StopLandfallTimer();
+            instance.landfalls.Reset();
             instance.UpdateDot();
             instance.sessionPending = true;
             instance.lastWritten = null;
@@ -501,6 +538,15 @@ namespace VoyageRecorder
             instance.markerMenu = null;
             instance.lastMark = null;
             instance.writtenMissions.Clear();
+        }
+
+        [HarmonyPatch(typeof(PickupableBoatMooringRope), nameof(PickupableBoatMooringRope.MoorTo))]
+        private static class DockMooringPatch
+        {
+            private static void Postfix(PickupableBoatMooringRope __instance, GPButtonDockMooring mooring)
+            {
+                if (instance != null) instance.RecordMooring(__instance, mooring);
+            }
         }
 
         // Every mission list goes through DisplayMissions: the mission book's accepted missions, and each page of a
@@ -550,7 +596,10 @@ namespace VoyageRecorder
         {
             private static void Postfix()
             {
-                if (instance == null || !instance.recording) return;
+                if (instance == null) return;
+                if (GameState.recovering) instance.landfalls.Reset();
+                if (!instance.recording) return;
+                instance.StopLandfallTimer();
                 if (instance.sleepReadings.Value) instance.Record("sleep");
                 if (!instance.duringSleep.Value) instance.StopTimer();
                 // Sleep speeds up time, which the dot's flashing is timed by.
@@ -566,6 +615,7 @@ namespace VoyageRecorder
                 if (instance == null || !instance.recording) return;
                 if (instance.sleepReadings.Value) instance.Record("wake");
                 if (!instance.duringSleep.Value) instance.StartTimer();
+                instance.StartLandfallTimer();
                 instance.UpdateDot();
             }
         }

@@ -33,11 +33,17 @@ try {
     $all = [Reflection.BindingFlags]'Instance,Static,Public,NonPublic'
     $members = @(
         @('GameState', 'playing'), @('GameState', 'sleeping'), @('GameState', 'inCursorMenu'), @('GameState', 'currentlyLoading'),
-        @('GameState', 'currentBoat'), @('GameState', 'day'), @('Sun', 'sun'), @('Sun', 'globalTime'),
+        @('GameState', 'currentBoat'), @('GameState', 'lastBoat'), @('GameState', 'day'), @('Sun', 'sun'), @('Sun', 'globalTime'),
         @('Wind', 'currentWind'), @('Refs', 'observerMirror'), @('FloatingOriginManager', 'instance'),
         @('FloatingOriginManager', 'GetGlobeCoords'), @('SaveSlots', 'currentSlot'),
         @('NotificationUi', 'instance'), @('NotificationUi', 'ShowNotification'),
-        @('GameState', 'lastVisitedPort'), @('Port', 'portIndex'), @('Port', 'GetPortName'), @('Refs', 'islands'),
+        @('Port', 'ports'), @('Port', 'portIndex'), @('Port', 'GetPortName'), @('Port', 'island'), @('Refs', 'islands'),
+        @('PickupableBoatMooringRope', 'GetBoatRigidbody'), @('GPButtonDockMooring', 'spring'),
+        @('Recovery', 'GetPort'), @('RecoveryPort', 'parentPort'),
+        @('GameState', 'justStarted'), @('GameState', 'recovering'), @('GameState', 'onRatlines'),
+        @('Refs', 'charController'), @('PlayerSwimming', 'swimming'), @('PlayerSwimming', 'inShallowWater'),
+        @('FootstepsAudio', 'currentGroundCol'),
+        @('IslandHorizon', 'islandIndex'), @('IslandSceneryScene', 'parentIslandIndex'),
         @('BoatDamage', 'hullDamage'), @('Mission', 'originPort'), @('Mission', 'destinationPort'),
         @('Mission', 'distance'), @('Sun', 'initialTimescale'), @('GameState', 'modData'))
     foreach ($pair in $members) {

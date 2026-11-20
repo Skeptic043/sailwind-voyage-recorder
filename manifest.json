@@ -1,6 +1,6 @@
 {
   "name": "Voyage_Recorder",
-  "version_number": "0.2.2",
+  "version_number": "0.2.8",
   "website_url": "https://github.com/Skeptic043/sailwind-voyage-recorder",
   "description": "Press a key to record your voyage to a file that Sailwind Chartroom follows live.",
   "dependencies": [

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.8
+
+### Added
+- While recording, Voyage Recorder logs landfalls when you step onto dry island ground. With `Island landfalls` enabled, press the Location key (`V` by default) while ashore to record a landfall
+- Recordings of the exact variant and orientation of a Terra Incognita landfall. These details let [Sailwind Chartroom 0.9.26](https://github.com/Skeptic043/sailwind-chartroom/releases/latest) place the matching outline
+
+### Changed
+- Port arrivals are now recorded when you tie your boat to a dock cleat instead of when you enter the port's area
+
+### Fixed
+- Scrambled Seas islands that are placed close together now use the correct name if both are automatically registered at the same time. Previously, both would incorrectly have the same name
+
 ## 0.2.2
 
 ### Added

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Reflection;
 using BepInEx.Bootstrap;
 using BepInEx.Configuration;
@@ -8,32 +9,10 @@ using UnityEngine;
 namespace VoyageRecorder
 {
     /// <summary>
-    /// Ports reached and missions described, read from the game and, for mission hints, from Scrambled Seas.
-    /// Everything here runs only when a port is reached or a mission list shows.
+    /// Island and port visits, world details and mission hints read from the game and optional mods.
     /// </summary>
-    internal static class Discoveries
+    internal static partial class Discoveries
     {
-        /// <summary>The game's island number ("island N") nearest the port, or -1.</summary>
-        public static int IslandOf(Port port)
-        {
-            Transform[] islands = Refs.islands;
-            if (islands == null || port == null) return -1;
-            Vector3 position = port.transform.position;
-            int best = -1;
-            float bestDistance = float.MaxValue;
-            for (int i = 0; i < islands.Length; i++)
-            {
-                if (islands[i] == null) continue;
-                float distance = (islands[i].position - position).sqrMagnitude;
-                if (distance < bestDistance)
-                {
-                    bestDistance = distance;
-                    best = i;
-                }
-            }
-            return best;
-        }
-
         public static PortVisit Visit(Port port, int day, double hour)
         {
             int island = IslandOf(port);
@@ -159,7 +138,10 @@ namespace VoyageRecorder
             // or a game it's off for, has no offset; null means the offset couldn't be read.
             public static Vector3? IslandOffset(int island)
             {
-                if (!Active) return Vector3.zero;
+                Resolve();
+                if (!present) return Vector3.zero;
+                if (!(enabled?.GetValue(null) is bool on)) return null;
+                if (!on) return Vector3.zero;
                 if (saveContainer == null || island < 1) return null;
                 object container = saveContainer.GetValue(null, null);
                 if (!(container?.GetType().GetProperty("islandOffsets")?.GetValue(container, null) is Vector3[] offsets)) return null;

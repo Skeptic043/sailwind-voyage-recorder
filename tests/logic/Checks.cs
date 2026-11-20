@@ -27,6 +27,8 @@ namespace VoyageRecorder
             CultureInfo.CurrentCulture = new CultureInfo("de-DE");
             CultureInfo.CurrentUICulture = new CultureInfo("de-DE");
             LogFormat.Now = () => new DateTime(2026, 11, 15, 12, 0, 0, 500, DateTimeKind.Utc);
+            IslandContacts.Check(Check);
+            Plugin.CheckPortVisits(Check);
 
             var header = Parse(LogFormat.Header("0.1.0", 2));
             Check(header.GetProperty("type").GetString() == "header", "header type");
@@ -118,6 +120,28 @@ namespace VoyageRecorder
             Check(depart.GetProperty("type").GetString() == "depart" && depart.GetProperty("port").GetString() == "Gold Rock City"
                 && depart.GetProperty("island").GetInt32() == 1 && depart.GetProperty("hour").GetDouble() == 11.25, "depart line names the port and time");
 
+            var landfall = Parse(LogFormat.Landfall(new LandfallVisit
+            {
+                Day = 4, Hour = 11.25, Source = "terra-incognita", IslandId = "terra incognita Atoll (route) #12",
+                Name = "Atoll (route) #12", Lat = 30.201, Lon = -2.451, IslandLat = 30.205, IslandLon = -2.455
+            }));
+            Check(landfall.GetProperty("type").GetString() == "landfall" && landfall.GetProperty("source").GetString() == "terra-incognita"
+                && landfall.GetProperty("islandId").GetString() == "terra incognita Atoll (route) #12"
+                && landfall.GetProperty("name").GetString() == "Atoll (route) #12", "landfall identifies the specific generated island");
+            Check(landfall.GetProperty("day").GetInt32() == 4 && landfall.GetProperty("hour").GetDouble() == 11.25
+                && landfall.GetProperty("lat").GetDouble() == 30.201 && landfall.GetProperty("lon").GetDouble() == -2.451
+                && landfall.GetProperty("islandLat").GetDouble() == 30.205 && landfall.GetProperty("islandLon").GetDouble() == -2.455,
+                "landfall keeps the confirmation time, player position and island centre");
+            Check(!landfall.TryGetProperty("offsetLat", out _) && !landfall.TryGetProperty("offsetLon", out _),
+                "generated landfalls leave out the native island offset");
+            var movedLandfall = Parse(LogFormat.Landfall(new LandfallVisit
+            {
+                Source = "native", IslandId = "38", OffsetLat = 2.8751234, OffsetLon = 7.7504321
+            }));
+            Check(movedLandfall.GetProperty("offsetLat").GetDouble() == 2.8751234 && movedLandfall.GetProperty("offsetLon").GetDouble() == 7.7504321,
+                "native landfalls include the Scrambled Seas offset for the chart outline");
+            CheckLandfallVisits();
+
             var note = Parse(LogFormat.Note(new Reading { Day = 5, Hour = 13.5, Lat = 31, Lon = -2, Boat = "dhow medium", Course = 90, Knots = 4 }, "abc123", "Whales here\nlots of them"));
             Check(note.GetProperty("type").GetString() == "note" && note.GetProperty("id").GetString() == "abc123"
                 && note.GetProperty("text").GetString() == "Whales here\nlots of them" && note.GetProperty("boat").GetString() == "dhow medium"
@@ -165,6 +189,38 @@ namespace VoyageRecorder
 
             Console.WriteLine(failures == 0 ? "All logic checks passed." : failures + " logic check(s) failed.");
             return failures == 0 ? 0 : 1;
+        }
+
+        private static void CheckLandfallVisits()
+        {
+            var visits = new IslandLandfalls();
+            Check(!visits.ObserveIsland(10) && !visits.ObserveIsland(10), "starting ashore establishes a baseline");
+
+            visits.ObserveOffIsland();
+            Check(!visits.ObserveIsland(10), "a return from water or a boat needs confirmation");
+            visits.ClearPending();
+            Check(!visits.ObserveIsland(10) && visits.ObserveIsland(10), "an uncertain sample breaks confirmation");
+            Check(visits.ObserveIsland(10), "a landing stays eligible until the write succeeds");
+            visits.Recorded(10);
+            visits.ClearPending();
+            Check(!visits.ObserveIsland(10), "a jump or uncertain sample does not rearm a recorded visit");
+
+            Check(!visits.ObserveIsland(20) && !visits.ObserveIsland(30) && visits.ObserveIsland(30),
+                "a different island can be visited directly and needs two matching samples");
+            visits.Reset();
+            Check(!visits.ObserveIsland(30) && !visits.ObserveIsland(30), "a reset discards a pending landing and establishes a new baseline");
+
+            Check(visits.ObserveIsland(30, manual: true), "the location key can record the baseline island immediately");
+            visits.Recorded(30);
+            visits.Rebaseline();
+            Check(!visits.ObserveIsland(30, manual: true) && !visits.ObserveIsland(30),
+                "manual and timed checks share deduplication across a recording toggle");
+            visits.Rebaseline();
+            Check(!visits.ObserveIsland(40) && visits.ObserveIsland(40, manual: true),
+                "starting on a different island after a gap establishes a fresh baseline");
+            visits.Recorded(40);
+            Check(!visits.ObserveIsland(50) && visits.ObserveIsland(60, manual: true) && !visits.ObserveIsland(50),
+                "an intervening manual check breaks confirmation of a different island even if the write fails");
         }
     }
 }

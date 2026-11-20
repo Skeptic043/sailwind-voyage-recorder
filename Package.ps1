@@ -2,7 +2,8 @@
 param(
     [string]$GameManagedDir = 'C:\Steam Games\steamapps\common\Sailwind\Sailwind_Data\Managed',
     [string]$ReferenceDir = '',
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [string]$ArtifactDirectory = (Join-Path $PSScriptRoot 'artifacts')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,7 +31,7 @@ foreach ($entry in $entries) {
     if (-not [IO.File]::Exists($entry.Source)) { throw "Required package input is missing: $($entry.Name)" }
 }
 
-$artifactDir = Join-Path $projectRoot 'artifacts'
+$artifactDir = $ArtifactDirectory
 [IO.Directory]::CreateDirectory($artifactDir) | Out-Null
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmssfff'
 $zip = Join-Path $artifactDir "VoyageRecorder-$version-thunderstore-$stamp.zip"
