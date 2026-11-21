@@ -16,7 +16,7 @@ Install Voyage Recorder through [Sailwind Mod Synchronizer](https://github.com/f
 
 ## How it works
 
-Press `J` to start or stop recording. The game briefly shows `Recording` or `Stopped recording` to confirm the current state, and you can optionally show a flashing red dot in a corner of the screen while recording. Press `V` to record your current location once. `Shift + V` opens a small menu where you can mark a race start, checkpoint or finish, write a note about where you are, or undo your last mark. Chartroom shows race marks as flags on your track, uses them to pick the stretch to share, and shows notes on the chart. Voyage Recorder automatically records your location every 60 seconds of game time and has several configurable options. In [Sailwind Chartroom](https://github.com/Skeptic043/sailwind-chartroom), choose `Follow live (Voyage Recorder)` to find your saved recordings automatically. Chartroom adds locations to the chart as they are recorded, including the information selected in the configuration, every port where you tie up, and a search area for each mission you view. Recordings are stored separately for each save slot in the `Voyage Recorder` folder beside your Sailwind saves. On Windows, this is `%USERPROFILE%\AppData\LocalLow\Raw Lion Workshop\Sailwind\Voyage Recorder`. On Mac, it is under `drive_c/users/<user>/AppData/LocalLow/Raw Lion Workshop/Sailwind/Voyage Recorder` inside your CrossOver, Whisky or other compatibility layer's bottle. To use the recordings in your own tools, see [FORMAT.md](https://github.com/Skeptic043/sailwind-voyage-recorder/blob/main/FORMAT.md) for the file format.
+Press `J` to start or stop recording. The game briefly shows `Recording` or `Stopped recording` to confirm the current state, and you can optionally show a flashing red dot in a corner of the screen while recording. Press `V` to record your current location once. `Shift + V` opens a small menu where you can mark a race start, checkpoint or finish, write a note about where you are, or undo your last mark. In [Sailwind Chartroom](https://github.com/Skeptic043/sailwind-chartroom), choose `Follow live (Voyage Recorder)` to find your saved recordings automatically. Chartroom adds locations to the chart as they are recorded, including the information selected in the configuration. Recordings are stored separately for each save slot in the `Voyage Recorder` folder beside your Sailwind saves. On Windows, this is `%USERPROFILE%\AppData\LocalLow\Raw Lion Workshop\Sailwind\Voyage Recorder`. On Mac, it is under `drive_c/users/<user>/AppData/LocalLow/Raw Lion Workshop/Sailwind/Voyage Recorder` inside your CrossOver, Whisky or other compatibility layer's bottle. To use the recordings in your own tools, see [FORMAT.md](https://github.com/Skeptic043/sailwind-voyage-recorder/blob/main/FORMAT.md) for the file format.
 
 ## Configuration
 
@@ -30,13 +30,13 @@ Settings can be changed after the first launch in `BepInEx/config/com.skeptic043
 | `Interval` | `60` | Seconds of game time between positions, from 10 to 600. |
 | `Sleep and wake readings` | `true` | Mark your position when you fall asleep and when you wake up. |
 | `Record during sleep` | `false` | Keep track of your position while you sleep. |
-| `Only while aboard` | `false` | Skip position readings while you are not aboard a boat. |
+| `Recording area` | `Anywhere` | `AboardOnly` limits automatic readings to when you're aboard a ship. `AshoreOnly` limits automatic readings to when you're ashore. |
 | `Boat` | `true` | Note which boat you are aboard. |
 | `Course and speed` | `true` | Note the boat's course and speed. |
 | `Wind` | `true` | Note the wind's direction and strength. |
 | `Hull damage` | `true` | Note your boat's hull damage. |
 | `Port visits` | `true` | Record port arrivals when you tie your boat to a dock cleat, and departures after leaving. |
-| `Island landfalls` | `true` | Record when you step ashore while recording. The Location key checks for a landfall while standing ashore, even with recording off. |
+| `Island landfalls` | `true` | Record when you step ashore with recording active. |
 | `Missions` | `true` | Note the direction or coordinates shown by Scrambled Seas for each mission you view. |
 | `Show` (Recording dot) | `false` | Show a flashing red dot in a corner of the screen while recording. |
 | `Corner` (Recording dot) | `TopRight` | Choose the dot's corner: `TopLeft`, `TopRight`, `BottomLeft` or `BottomRight`. |

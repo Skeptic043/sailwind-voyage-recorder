@@ -15,5 +15,6 @@
     <Compile Include="../../src/IslandLandfalls.cs" />
     <Compile Include="../../src/LogFormat.cs" />
     <Compile Include="../../src/Plugin.Ports.cs" />
+    <Compile Include="../../src/Plugin.Recording.cs" />
   </ItemGroup>
 </Project>

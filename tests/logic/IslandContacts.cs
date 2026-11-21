@@ -32,6 +32,40 @@ namespace VoyageRecorder
             var terrain = new Transform { parent = malefic };
             FootstepsAudio.currentGroundCol = terrain.Add(new Collider());
 
+            const Plugin.RecordingArea ashore = Plugin.RecordingArea.AshoreOnly;
+            var boat = new Transform();
+            check(!Plugin.AllowsPosition(ashore, boat), "ashore mode skips an automatic reading on a deck next to an island");
+            check(!Plugin.AllowsPosition(ashore, boat, manual: true), "ashore mode skips a manual reading on the deck");
+            check(Plugin.AllowsPosition(Plugin.RecordingArea.Anywhere, boat), "anywhere mode can record underway");
+            check(!Plugin.AllowsPosition(Plugin.RecordingArea.AboardOnly, null) &&
+                Plugin.AllowsPosition(Plugin.RecordingArea.AboardOnly, null, manual: true),
+                "aboard mode still filters automatic readings and allows manual readings ashore");
+            PlayerSwimming.swimming = true;
+            check(!Plugin.AllowsPosition(ashore, null), "ashore mode skips a swimming reading above island terrain");
+            PlayerSwimming.swimming = false;
+            PlayerSwimming.inShallowWater = true;
+            check(!Plugin.AllowsPosition(ashore, null, manual: true), "ashore mode skips a manual reading while wading");
+            PlayerSwimming.inShallowWater = false;
+            check(Plugin.AllowsPosition(ashore, null), "ashore mode can record on a beach before any landfall check");
+
+            var scenery = new Transform();
+            scenery.Add(new IslandSceneryScene { parentIslandIndex = 17 });
+            FootstepsAudio.currentGroundCol = new Transform { parent = scenery }.Add(new Collider());
+            check(Plugin.AllowsPosition(ashore, null, manual: true), "ashore mode can capture a manual reading on an island-owned dock");
+            Refs.charController.enabled = false;
+            check(!Plugin.AllowsPosition(ashore, null), "unavailable ground contact skips the reading");
+            GameState.sleeping = GameState.sleepingInTavern = true;
+            check(Plugin.AllowsPosition(ashore, null) && !Plugin.AllowsPosition(ashore, null, manual: true),
+                "tavern sleep can record automatically with player control disabled");
+            GameState.sleeping = GameState.sleepingInTavern = false;
+            check(Plugin.AllowsPosition(ashore, null, wakingInTavern: true),
+                "tavern wake can record before the first fresh ground contact");
+            GameState.recovering = true;
+            check(!Plugin.AllowsPosition(ashore, null, wakingInTavern: true), "recovery is not an ashore sleep reading");
+            GameState.recovering = false;
+            Refs.charController.enabled = true;
+            FootstepsAudio.currentGroundCol = terrain.Find<Collider>();
+
             var visits = new IslandLandfalls();
             PlayerSwimming.inShallowWater = true;
             check(Discoveries.ConfirmLandfall(visits, manual: false) == null, "starting in shallow water does not immediately count as landfall");
@@ -171,6 +205,7 @@ internal static class GameState
     public static bool justStarted = false;
     public static bool recovering = false;
     public static bool sleeping = false;
+    public static bool sleepingInTavern;
 }
 
 internal sealed class FloatingOriginManager

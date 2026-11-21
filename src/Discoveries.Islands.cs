@@ -70,7 +70,7 @@ namespace VoyageRecorder
             return visits.ObserveIsland(island.GetInstanceID(), manual) ? island : null;
         }
 
-        private static IslandHorizon IslandUnderfoot()
+        internal static IslandHorizon IslandUnderfoot()
         {
             // The local controller reports contact. Sailwind's footsteps already sample the surface below it.
             CharacterController controller = Refs.charController;

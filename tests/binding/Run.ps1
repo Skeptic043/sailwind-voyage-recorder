@@ -33,7 +33,8 @@ try {
     $all = [Reflection.BindingFlags]'Instance,Static,Public,NonPublic'
     $members = @(
         @('GameState', 'playing'), @('GameState', 'sleeping'), @('GameState', 'inCursorMenu'), @('GameState', 'currentlyLoading'),
-        @('GameState', 'currentBoat'), @('GameState', 'lastBoat'), @('GameState', 'day'), @('Sun', 'sun'), @('Sun', 'globalTime'),
+        @('GameState', 'currentBoat'), @('GameState', 'lastBoat'), @('GameState', 'day'), @('GameState', 'sleepingInTavern'),
+        @('Sun', 'sun'), @('Sun', 'globalTime'),
         @('Wind', 'currentWind'), @('Refs', 'observerMirror'), @('FloatingOriginManager', 'instance'),
         @('FloatingOriginManager', 'GetGlobeCoords'), @('SaveSlots', 'currentSlot'),
         @('NotificationUi', 'instance'), @('NotificationUi', 'ShowNotification'),

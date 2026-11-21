@@ -14,7 +14,7 @@ namespace VoyageRecorder
     public sealed partial class Plugin : BaseUnityPlugin
     {
         public const string Id = "com.skeptic043.sailwind.voyagerecorder";
-        public const string Version = "0.2.8";
+        public const string Version = "0.2.9";
 
         private static Plugin instance;
         private static ManualLogSource log;
@@ -25,7 +25,7 @@ namespace VoyageRecorder
         private ConfigEntry<int> interval;
         private ConfigEntry<bool> sleepReadings;
         private ConfigEntry<bool> duringSleep;
-        private ConfigEntry<bool> onlyAboard;
+        private ConfigEntry<RecordingArea> recordingArea;
         private ConfigEntry<bool> recordBoat;
         private ConfigEntry<bool> recordCourse;
         private ConfigEntry<bool> recordWind;
@@ -81,8 +81,7 @@ namespace VoyageRecorder
                 "Take a reading when you fall asleep and when you wake up.");
             duringSleep = Config.Bind("Recording", "Record during sleep", false,
                 "Keep taking readings while you sleep.");
-            onlyAboard = Config.Bind("Recording", "Only while aboard", false,
-                "Skip readings while you are not aboard a boat.");
+            recordingArea = BindRecordingArea(Config);
             recordBoat = Config.Bind("Details", "Boat", true, "Record which boat you are aboard.");
             recordCourse = Config.Bind("Details", "Course and speed", true, "Record the boat's course and speed.");
             recordWind = Config.Bind("Details", "Wind", true, "Record the wind's direction and strength.");
@@ -115,6 +114,15 @@ namespace VoyageRecorder
 
             new Harmony(Id).PatchAll(typeof(Plugin).Assembly);
             Logger.LogInfo("Voyage Recorder loaded.");
+        }
+
+        private static ConfigEntry<RecordingArea> BindRecordingArea(ConfigFile config)
+        {
+            bool onlyAboard = config.Bind("Recording", "Only while aboard", false,
+                new ConfigDescription("Used to choose the initial Recording area when upgrading.", null,
+                    new ConfigurationManagerAttributes { Browsable = false })).Value;
+            return config.Bind("Recording", "Recording area", onlyAboard ? RecordingArea.AboardOnly : RecordingArea.Anywhere,
+                "Anywhere records in all locations. AboardOnly limits automatic readings to boats. AshoreOnly limits automatic readings, marks and notes to dry island ground, including docks.");
         }
 
         // The one per-frame cost: a single any-key query. The two keys are checked only after it.
@@ -171,7 +179,9 @@ namespace VoyageRecorder
             if (!CanRead) return;
             try
             {
-                WriteMark("mark", "Location", GameState.currentBoat, PlayerGlobe());
+                Transform boat = GameState.currentBoat;
+                if (!AllowManualPosition(boat)) return;
+                WriteMark("mark", "Location", boat, PlayerGlobe());
                 Notify("Location recorded");
                 if (recordLandfalls.Value) ReadLandfall(manual: true);
             }
@@ -208,7 +218,9 @@ namespace VoyageRecorder
                     foreach (var option in MarkerMenu.Choices)
                     {
                         if (option.Event != choice) continue;
-                        WriteMark(choice, option.Label, GameState.currentBoat, PlayerGlobe());
+                        Transform boat = GameState.currentBoat;
+                        if (!AllowManualPosition(boat)) return;
+                        WriteMark(choice, option.Label, boat, PlayerGlobe());
                         Notify(option.Label + " recorded");
                     }
                 }
@@ -225,7 +237,9 @@ namespace VoyageRecorder
             if (!CanRead || noteBox != null) return;
             try
             {
-                Reading reading = TakeReading(null, GameState.currentBoat, PlayerGlobe());
+                Transform boat = GameState.currentBoat;
+                if (!AllowManualPosition(boat)) return;
+                Reading reading = TakeReading(null, boat, PlayerGlobe());
                 noteBox = NoteBox.Open(this, text => WriteNote(reading, text));
             }
             catch (Exception exception)
@@ -362,17 +376,27 @@ namespace VoyageRecorder
 
         private static bool CanRead => GameState.playing && !GameState.currentlyLoading;
 
+        private bool AllowManualPosition(Transform boat)
+        {
+            if (AllowsPosition(recordingArea.Value, boat, manual: true)) return true;
+            Notify("Only available ashore");
+            return false;
+        }
+
         // A reading while recording: timed (no event name) or for an event, plus an approximate port departure.
-        private void Record(string eventName)
+        private void Record(string eventName, bool wakingInTavern = false)
         {
             if (!recording || !CanRead) return;
             try
             {
                 Transform boat = GameState.currentBoat;
-                Vector3 globe = PlayerGlobe();
-                // Timed readings while standing still add nothing; start, stop, sleep and wake are always written.
-                bool still = eventName == null && lastWritten.HasValue && GlobeMetres(lastWritten.Value, globe) < StillMetres;
-                if (!still && (boat != null || !onlyAboard.Value)) WritePosition(eventName, boat, globe);
+                if (AllowsPosition(recordingArea.Value, boat, wakingInTavern: wakingInTavern))
+                {
+                    Vector3 globe = PlayerGlobe();
+                    // Timed readings while standing still add nothing. Events can mark the same position again.
+                    bool still = eventName == null && lastWritten.HasValue && GlobeMetres(lastWritten.Value, globe) < StillMetres;
+                    if (!still) WritePosition(eventName, boat, globe);
+                }
                 if (recordPorts.Value) RecordPortDeparture();
             }
             catch (Exception exception)
@@ -610,10 +634,14 @@ namespace VoyageRecorder
         [HarmonyPatch(typeof(Sleep), nameof(Sleep.WakeUp))]
         private static class WakeUpPatch
         {
-            private static void Postfix()
+            // WakeUp clears the tavern flag before the controller has refreshed ground contact.
+            private static void Prefix(out bool __state) => __state = GameState.sleepingInTavern;
+
+            private static void Postfix(bool __state)
             {
                 if (instance == null || !instance.recording) return;
-                if (instance.sleepReadings.Value) instance.Record("wake");
+                if (instance.sleepReadings.Value && (instance.recordingArea.Value != RecordingArea.AshoreOnly || !GameState.sleeping))
+                    instance.Record("wake", wakingInTavern: __state);
                 if (!instance.duringSleep.Value) instance.StartTimer();
                 instance.StartLandfallTimer();
                 instance.UpdateDot();

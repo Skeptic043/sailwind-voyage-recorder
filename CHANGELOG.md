@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.9
+
+### Added
+- `Recording area` replaces `Only while aboard` and offers three options: `AshoreOnly`, `AboardOnly`, and `Anywhere`.
+
 ## 0.2.8
 
 ### Added
