@@ -100,7 +100,7 @@ From 0.2.0. Written while recording when the player moves more than 1500 metres 
 
 ### landfall
 
-From 0.2.3. While recording, Voyage Recorder checks the ground under the player every three seconds at normal play speed and writes a visit after two consecutive checks on the same island. Starting a recording ashore establishes the current island. Using the Location key ashore can record the visit immediately, including while recording is off. Both checks share the same visit tracking. From 0.2.6 they require contact out of shallow water. Brief landings and departures can be missed between checks.
+From 0.2.3. While recording, Voyage Recorder checks the ground under the player every three seconds at normal play speed and writes a visit after two consecutive checks on the same island. Starting a recording ashore establishes the current island. Using the Location key ashore can record the visit immediately, including while recording is off. Both checks share the same visit tracking. From 0.2.6 they require contact out of shallow water. Brief landings and departures can be missed between checks. From 0.3.0, on the Fire Fish Lagoon's islands and sandbars, being within about 60 metres of land at least half a metre above the sea also counts, aboard, swimming or wading, so `lat` and `lon` can be just offshore.
 
 ```json
 {"type":"landfall","utc":1794744000.5,"day":12,"hour":9.5,"source":"terra-incognita","islandId":"terra incognita Atoll (route) #12","name":"Atoll (route) #12","lat":30.201,"lon":-2.451,"islandLat":30.205,"islandLon":-2.455}
@@ -108,8 +108,8 @@ From 0.2.3. While recording, Voyage Recorder checks the ground under the player 
 
 | Field | Meaning |
 | --- | --- |
-| `source` | `native` for registered islands, including those moved by Scrambled Seas, or `terra-incognita` for generated islands. |
-| `islandId` | The registered island number as a string for `native`, or the full generated island root name for `terra-incognita`. |
+| `source` | `native` for registered islands, including those moved by Scrambled Seas, `terra-incognita` for generated islands, or, from 0.3.0, `unnumbered` for land the game gives no island number, such as the Fire Fish Lagoon sandbars. |
+| `islandId` | The registered island number as a string for `native`, or the full island root name for `terra-incognita` and `unnumbered`. The Fire Fish Lagoon sandbars are one landmass, `island 26 lagoon parent terrain (-1)`. The lagoon's islets are part of Fire Fish Town (26), Kicia Bay (27), Sen'na (28) or Lagoon North Sandbar (31), so which islet the player was on comes from `lat` and `lon`. From 0.3.0, a new landfall is written on Fire Fish Town, Kicia Bay, Sen'na and the sandbars once the player is about 270 metres (0.03 degrees) from where the last one was recorded, so each islet they cross to is recorded. |
 | `name` | The island's label when available. |
 | `day`, `hour`, `lat`, `lon` | The game time and player's globe coordinates when the visit was confirmed. |
 | `islandLat`, `islandLon` | The island root's globe coordinates. Compare these with a small tolerance for floating-point shifts when grouping visits by `source` and `islandId` within a game and world layout. A generated layout can reuse a name at a different location. If `session.game` is unavailable, group within the session. |
@@ -137,13 +137,22 @@ A note never has an `event` and is not a `mark`. Cancelling the box writes nothi
 
 Written when a mission list shows, in the player's mission book or on a port's mission board, whether or not recording is on, once a session for each origin and destination, and only when Scrambled Seas is on for the game and gives a destination hint. It holds only what the mission screen shows: the hint is either a heading on Scrambled Seas' compass or coordinates rounded to its precision.
 
+From 0.3.0, with `Island hints at capitals` on, the same line also gives a hint toward an island without a port, written when a mission list shows a mission from its region's capital, whether or not recording is on, once a session for each island: Gold Rock City for Isle of Clear Mind and Lion's Fang, Fort Aestrin for Oracle, and Dragon Cliffs for Pondering Peak. With `Secret island hints` on as well, a capital also gives hints toward its region's secret islands. These lines have `"source":"capital"`, the island's name as `destination` and its island number as `destinationIsland`. The hint follows Scrambled Seas' destination hint when it gives a heading or coordinates, and is otherwise a heading on a 32-point compass. A heading hint always has `miles`.
+
+<details><summary>Secret islands (spoilers)</summary>
+
+Gold Rock City adds Eleann Island and Saffron, and Fort Aestrin adds Bone Isle.
+
+</details>
+
 ```json
 {"type":"mission","day":12,"hour":10,"origin":"Gold Rock City","originIsland":1,"originLat":30.2,"originLon":-2.45,"destination":"Fort Aestrin","destinationIsland":15,"heading":22.5,"points":16,"miles":214}
 ```
 
 | Field | Always | Meaning |
 | --- | --- | --- |
-| `origin`, `destination` | yes | Port names as the game shows them. |
+| `source` | no | `capital` for a hint toward an island without a port. Left out for a mission. |
+| `origin`, `destination` | yes | Port names as the game shows them, or the island's name for a `capital` hint. |
 | `originIsland`, `destinationIsland` | yes | The game's island numbers, as for `port`. |
 | `originLat`, `originLon` | yes | The origin port, where the heading is measured from. |
 | `heading`, `points` | no | The direction shown, in degrees, on a compass of `points` directions. |

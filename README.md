@@ -28,6 +28,7 @@ Settings can be changed after the first launch in `BepInEx/config/com.skeptic043
 | `Location key` | `V` | The key that records your location once. |
 | `Marker menu key` | `Shift + V` | The key that opens the marker menu. |
 | `Interval` | `60` | Seconds of game time between positions, from 10 to 600. |
+| `Start recording on load` | `false` | Start recording automatically when you load a save or start a new game. |
 | `Sleep and wake readings` | `true` | Mark your position when you fall asleep and when you wake up. |
 | `Record during sleep` | `false` | Keep track of your position while you sleep. |
 | `Recording area` | `Anywhere` | `AboardOnly` limits automatic readings to when you're aboard a ship. `AshoreOnly` limits automatic readings to when you're ashore. |
@@ -38,6 +39,8 @@ Settings can be changed after the first launch in `BepInEx/config/com.skeptic043
 | `Port visits` | `true` | Record port arrivals when you tie your boat to a dock cleat, and departures after leaving. |
 | `Island landfalls` | `true` | Record when you step ashore with recording active. |
 | `Missions` | `true` | Note the direction or coordinates shown by Scrambled Seas for each mission you view. |
+| `Island hints at capitals` | `false` | When you open the mission board at Gold Rock City, Fort Aestrin or Dragon Cliffs, a search area is drawn towards islands without ports that are normally in each region. |
+| `Secret island hints` | `false` | Show secret islands as search area hints. |
 | `Show` (Recording dot) | `false` | Show a flashing red dot in a corner of the screen while recording. |
 | `Corner` (Recording dot) | `TopRight` | Choose the dot's corner: `TopLeft`, `TopRight`, `BottomLeft` or `BottomRight`. |
 | `Size` (Recording dot) | `Small` | `Small` or `Large`. |

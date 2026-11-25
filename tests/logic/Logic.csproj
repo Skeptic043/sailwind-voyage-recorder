@@ -11,9 +11,11 @@
     <Compile Include="Checks.cs" />
     <Compile Include="IslandContacts.cs" />
     <Compile Include="PortVisitChecks.cs" />
+    <Compile Include="../../src/Discoveries.Capitals.cs" />
     <Compile Include="../../src/Discoveries.Islands.cs" />
     <Compile Include="../../src/IslandLandfalls.cs" />
     <Compile Include="../../src/LogFormat.cs" />
+    <Compile Include="../../src/Plugin.Hints.cs" />
     <Compile Include="../../src/Plugin.Ports.cs" />
     <Compile Include="../../src/Plugin.Recording.cs" />
   </ItemGroup>

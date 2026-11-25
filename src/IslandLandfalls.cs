@@ -1,3 +1,5 @@
+using System;
+
 namespace VoyageRecorder
 {
     /// <summary>Confirms visits within the current session using the live island roots' instance IDs.</summary>
@@ -7,6 +9,9 @@ namespace VoyageRecorder
         private int? currentIsland;
         private bool currentVisitRecorded;
         private int? pendingIsland;
+        // Where the current visit's landfall was recorded, in globe degrees.
+        private double landedLon = double.NaN;
+        private double landedLat = double.NaN;
 
         public void Reset()
         {
@@ -59,8 +64,14 @@ namespace VoyageRecorder
         }
 
         // Commit the visit only after its line has been appended.
-        public void Recorded(int island)
+        // Whether the player is this far from where the current visit's landfall on this island was recorded.
+        public bool FarFromLanding(int island, double lon, double lat, double degrees) =>
+            currentVisitRecorded && currentIsland == island && Math.Sqrt((lon - landedLon) * (lon - landedLon) + (lat - landedLat) * (lat - landedLat)) > degrees;
+
+        public void Recorded(int island, double lon = double.NaN, double lat = double.NaN)
         {
+            landedLon = lon;
+            landedLat = lat;
             currentIsland = island;
             currentVisitRecorded = true;
             ClearPending();

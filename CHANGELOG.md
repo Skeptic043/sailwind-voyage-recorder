@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+- The `Start recording on load` starts recording automatically when you load a save or start a new game. Off by default
+- `Island hints at capitals` records a search area hint toward each island without a port normally in the region when you open the mission board at Gold Rock City, Fort Aestrin or Dragon Cliffs. Off by default. Thank you to hydro on Discord for the suggestion
+- `Secret island hints` shows secret islands as search area hints. Off by default
+
+### Fixed
+- Fire Fish Lagoon islands now count as a landfall when you come within about 60 metres of them, and include their normal surrounding islands. Thank you to @silvan78 for the report
+
 ## 0.2.9
 
 ### Added

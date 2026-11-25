@@ -122,6 +122,8 @@ namespace VoyageRecorder
         public double? ApproxLon;
         public int? Decimals;
         public int? Miles;
+        // "capital" for a hint toward an island without a port, written on arriving at its region's capital.
+        public string Source;
     }
 
     /// <summary>
@@ -220,7 +222,7 @@ namespace VoyageRecorder
                 .Number("offsetLat", visit.OffsetLat, 7).Number("offsetLon", visit.OffsetLon, 7).End();
 
         public static string Mission(MissionHint mission) =>
-            new Line("mission").Int("day", mission.Day).Number("hour", mission.Hour, 4)
+            new Line("mission").Int("day", mission.Day).Number("hour", mission.Hour, 4).Text("source", mission.Source)
                 .Text("origin", mission.Origin).Int("originIsland", mission.OriginIsland)
                 .Number("originLat", mission.OriginLat, 7).Number("originLon", mission.OriginLon, 7)
                 .Text("destination", mission.Destination).Int("destinationIsland", mission.DestinationIsland)

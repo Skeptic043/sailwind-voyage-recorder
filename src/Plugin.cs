@@ -14,7 +14,7 @@ namespace VoyageRecorder
     public sealed partial class Plugin : BaseUnityPlugin
     {
         public const string Id = "com.skeptic043.sailwind.voyagerecorder";
-        public const string Version = "0.2.9";
+        public const string Version = "0.3.0";
 
         private static Plugin instance;
         private static ManualLogSource log;
@@ -23,6 +23,7 @@ namespace VoyageRecorder
         private ConfigEntry<KeyboardShortcut> locationKey;
         private ConfigEntry<KeyboardShortcut> markerKey;
         private ConfigEntry<int> interval;
+        private ConfigEntry<bool> startOnLoad;
         private ConfigEntry<bool> sleepReadings;
         private ConfigEntry<bool> duringSleep;
         private ConfigEntry<RecordingArea> recordingArea;
@@ -33,6 +34,8 @@ namespace VoyageRecorder
         private ConfigEntry<bool> recordPorts;
         private ConfigEntry<bool> recordLandfalls;
         private ConfigEntry<bool> recordMissions;
+        private ConfigEntry<bool> portlessHints;
+        private ConfigEntry<bool> secretHints;
         private ConfigEntry<bool> showDot;
         private ConfigEntry<DotCorner> dotCorner;
         private ConfigEntry<DotSize> dotSize;
@@ -42,6 +45,7 @@ namespace VoyageRecorder
         private bool sessionPending = true;
         private Coroutine timer;
         private Coroutine landfallTimer;
+        private Coroutine startWhenPlaying;
         private readonly IslandLandfalls landfalls = new IslandLandfalls();
         // Made the first time it is shown.
         private RecordingDot dot;
@@ -77,6 +81,8 @@ namespace VoyageRecorder
             interval = Config.Bind("Recording", "Interval", 60, new ConfigDescription(
                 "Seconds between readings while recording, in game time.",
                 new AcceptableValueRange<int>(10, 600)));
+            startOnLoad = Config.Bind("Recording", "Start recording on load", false,
+                "Start recording by itself when you load a save or start a new game, once you're in the game.");
             sleepReadings = Config.Bind("Recording", "Sleep and wake readings", true,
                 "Take a reading when you fall asleep and when you wake up.");
             duringSleep = Config.Bind("Recording", "Record during sleep", false,
@@ -91,6 +97,9 @@ namespace VoyageRecorder
                 "Record when you step ashore while recording or use the Location key on an island.");
             recordMissions = Config.Bind("Details", "Missions", true,
                 "Record the missions you see in your mission book or on a port's mission board, with the heading or coordinates Scrambled Seas shows, so Chartroom can draw search areas. Needs Scrambled Seas giving a destination hint.");
+            portlessHints = Config.Bind("Details", "Island hints at capitals", false,
+                "When the mission board at Gold Rock City, Fort Aestrin or Dragon Cliffs shows, or your mission book shows a mission from one, record a hint toward each island in that region without a port, so Chartroom can draw search areas for them. Hints follow Scrambled Seas' destination hint when it gives one.");
+            secretHints = Config.Bind("Details", "Secret island hints", false, "Show secret islands as search area hints.");
             showDot = Config.Bind("Recording dot", "Show", false, new ConfigDescription(
                 "Show a flashing red dot in a corner of the screen while recording.", null, new ConfigurationManagerAttributes { Order = 3 }));
             dotCorner = Config.Bind("Recording dot", "Corner", DotCorner.TopRight, new ConfigDescription(
@@ -267,6 +276,7 @@ namespace VoyageRecorder
 
         private void StartRecording()
         {
+            CancelStartWhenPlaying();
             // Leaving while recording was off isn't seen; forget that port rather than time its departure now.
             // Still there, it stays the port you're at, so restarting doesn't record a second arrival.
             if (HasLeftPort()) atPort = null;
@@ -280,6 +290,7 @@ namespace VoyageRecorder
 
         private void StopRecording()
         {
+            CancelStartWhenPlaying();
             Record("stop");
             recording = false;
             StopTimer();
@@ -355,12 +366,37 @@ namespace VoyageRecorder
 
                 LandfallVisit visit = Discoveries.Landfall(island, GameState.day, Sun.sun.globalTime, PlayerGlobe());
                 Write(LogFormat.Landfall(visit), visit.Day, visit.Hour);
-                landfalls.Recorded(island.GetInstanceID());
+                landfalls.Recorded(island.GetInstanceID(), visit.Lon, visit.Lat);
             }
             catch (Exception exception)
             {
                 ReadingFailed(exception);
             }
+        }
+
+        // After a load or new game, recording starts once the player is in the game: past the loading screen and
+        // the press-F screen, and after the game's first moments. Checked twice a second until then, in real time
+        // because the game may be paused while loading.
+        private void StartRecordingWhenPlaying()
+        {
+            if (!startOnLoad.Value) return;
+            startWhenPlaying = StartCoroutine(WaitUntilPlaying());
+        }
+
+        // The player starting or stopping recording themselves wins over starting it by itself.
+        private void CancelStartWhenPlaying()
+        {
+            if (startWhenPlaying != null) StopCoroutine(startWhenPlaying);
+            startWhenPlaying = null;
+        }
+
+        private IEnumerator WaitUntilPlaying()
+        {
+            var wait = new WaitForSecondsRealtime(0.5f);
+            while (!GameState.playing || GameState.currentlyLoading || GameState.justStarted) yield return wait;
+            startWhenPlaying = null;
+            // Turning the setting off meanwhile wins.
+            if (!recording && startOnLoad.Value) StartRecording();
         }
 
         private void UpdateDot()
@@ -483,9 +519,22 @@ namespace VoyageRecorder
         {
             try
             {
-                if (!recordMissions.Value || !GameState.playing || missions == null) return;
+                if (!GameState.playing || missions == null) return;
                 int day = GameState.day;
                 double hour = Sun.sun.globalTime;
+                // Hints have their own failure handling, so a failed hint never costs the missions.
+                try
+                {
+                    var origins = new List<Port>();
+                    foreach (Mission mission in missions)
+                        if (mission?.originPort != null && !origins.Contains(mission.originPort)) origins.Add(mission.originPort);
+                    WriteCapitalHints(origins, day, hour);
+                }
+                catch (Exception exception)
+                {
+                    LogOnce("Voyage Recorder could not record island hints: " + exception);
+                }
+                if (!recordMissions.Value) return;
                 int written = 0;
                 foreach (Mission mission in missions)
                 {
@@ -549,6 +598,7 @@ namespace VoyageRecorder
         {
             if (instance == null) return;
             instance.recording = false;
+            instance.CancelStartWhenPlaying();
             instance.StopTimer();
             instance.StopLandfallTimer();
             instance.landfalls.Reset();
@@ -602,6 +652,7 @@ namespace VoyageRecorder
             private static void Postfix()
             {
                 if (GameId == null) NewGameId();
+                instance?.StartRecordingWhenPlaying();
             }
         }
 
@@ -612,6 +663,7 @@ namespace VoyageRecorder
             {
                 ResetForNewSession();
                 NewGameId();
+                instance?.StartRecordingWhenPlaying();
             }
         }
 

@@ -28,6 +28,7 @@ namespace VoyageRecorder
 
             var player = new Transform();
             Refs.charController = player.Add(new CharacterController());
+            Refs.observerMirror = player;
             player.Add(new FootstepsAudio());
             var terrain = new Transform { parent = malefic };
             FootstepsAudio.currentGroundCol = terrain.Add(new Collider());
@@ -81,6 +82,67 @@ namespace VoyageRecorder
             check(Discoveries.ConfirmLandfall(visits, manual: true) == null, "wading at the current island does not end an already recorded visit");
             check(Discoveries.ConfirmLandfall(new IslandLandfalls(), manual: true) == owner, "the location key can record landfall immediately once dry");
 
+            // The Fire Fish Lagoon islets are one landmass under a root the game numbers -1.
+            var lagoon = new Transform { name = "island 26 lagoon parent terrain (-1)", position = new Vector3(2.9741f, 28.0988f) };
+            IslandHorizon lagoonRoot = lagoon.Add(new IslandHorizon { islandIndex = -1 });
+            FootstepsAudio.currentGroundCol = new Transform { parent = lagoon }.Add(new Collider());
+            check(Discoveries.ConfirmLandfall(new IslandLandfalls(), manual: true) == lagoonRoot, "the location key records a landfall on a Fire Fish Lagoon islet");
+            using (var islet = JsonDocument.Parse(LogFormat.Landfall(Discoveries.Landfall(lagoonRoot, 1, 8, new Vector3(3, 28.2f)))))
+            {
+                JsonElement value = islet.RootElement;
+                check(value.GetProperty("source").GetString() == "unnumbered" && value.GetProperty("islandId").GetString() == lagoon.name &&
+                    !value.TryGetProperty("name", out _) && Math.Abs(value.GetProperty("islandLon").GetDouble() - 2.9741) < 1e-4 &&
+                    value.GetProperty("lon").GetDouble() == 3,
+                    "an islet landfall names the lagoon root and where it is, with where the player stood");
+            }
+            check(Plugin.AllowsPosition(ashore, null, manual: true), "ashore mode counts a lagoon islet as island ground");
+            var wading = new IslandLandfalls();
+            player.position = new Vector3(3, 28.2f);
+            check(Discoveries.ConfirmLandfall(wading, manual: true) == lagoonRoot, "the first islet is a landfall");
+            wading.Recorded(lagoonRoot.GetInstanceID(), 3, 28.2);
+            PlayerSwimming.inShallowWater = true;
+            check(Discoveries.ConfirmLandfall(wading, manual: false) == null, "wading through the lagoon records nothing");
+            PlayerSwimming.inShallowWater = false;
+            player.position = new Vector3(3.02f, 28.2f);
+            Discoveries.ConfirmLandfall(wading, manual: false);
+            check(Discoveries.ConfirmLandfall(wading, manual: false) == null, "walking about the same islet stays one visit");
+            player.position = new Vector3(3.05f, 28.2f);
+            Discoveries.ConfirmLandfall(wading, manual: false);
+            check(Discoveries.ConfirmLandfall(wading, manual: false) == lagoonRoot, "wading across to the next islet records another landfall");
+            // Aboard, near an islet's dry land: the lagoon's small islands count without stepping ashore.
+            var sailing = new IslandLandfalls();
+            var onna = new Transform { name = "island 29 Lagoon Onna" };
+            IslandHorizon onnaRoot = onna.Add(new IslandHorizon { islandIndex = 29 });
+            Refs.islands = new Transform[34];
+            Refs.islands[17] = malefic;
+            Refs.islands[29] = onna;
+            var deck = new Transform();
+            GameState.currentBoat = deck;
+            Physics.Near = new Collider[0];
+            check(Discoveries.ConfirmLandfall(sailing, manual: false) == null, "open water records nothing");
+            Physics.Near = new[] { new Transform { parent = onna }.Add(new Collider()) };
+            Discoveries.ConfirmLandfall(sailing, manual: false);
+            check(Discoveries.ConfirmLandfall(sailing, manual: false) == onnaRoot, "sailing close past a lagoon island records a landfall on it");
+            Physics.Near = new[] { new Transform { parent = malefic }.Add(new Collider()) };
+            check(Discoveries.ConfirmLandfall(new IslandLandfalls(), manual: true) == null, "being near an island outside the lagoon still needs a landing");
+            GameState.currentBoat = null;
+            PlayerSwimming.inShallowWater = true;
+            Physics.Near = new[] { new Transform { parent = onna }.Add(new Collider()) };
+            check(Discoveries.ConfirmLandfall(new IslandLandfalls(), manual: true) == onnaRoot, "wading off a lagoon sandbar counts as being on it");
+            PlayerSwimming.inShallowWater = false;
+            Physics.Near = new Collider[0];
+            check(!Plugin.AllowsPosition(ashore, deck), "being near a lagoon island is not being ashore");
+
+            var visitsElsewhere = new IslandLandfalls();
+            FootstepsAudio.currentGroundCol = terrain.Find<Collider>();
+            player.position = new Vector3(0);
+            Discoveries.ConfirmLandfall(visitsElsewhere, manual: true);
+            visitsElsewhere.Recorded(owner.GetInstanceID(), 0, 0);
+            player.position = new Vector3(1);
+            Discoveries.ConfirmLandfall(visitsElsewhere, manual: false);
+            check(Discoveries.ConfirmLandfall(visitsElsewhere, manual: false) == null, "walking far across another island stays one visit");
+            FootstepsAudio.currentGroundCol = terrain.Find<Collider>();
+
             var generated = new Transform { name = "terra incognita SeaStacks (scatter:archipelago0@(41000,-43000)) #1" };
             IslandHorizon terra = generated.Add(new IslandHorizon());
             var tile = new Transform { parent = generated };
@@ -104,6 +166,11 @@ namespace VoyageRecorder
         private static class ScrambledSeas
         {
             internal static Vector3? IslandOffset(int island) => null;
+            internal static bool Active => false;
+            internal static string HintKind => "";
+            internal static int Points => 32;
+            internal static int Decimals => 0;
+            internal static double HeadingDegrees(Vector3 origin, Vector3 target) => 0;
         }
     }
 }
@@ -116,6 +183,7 @@ namespace UnityEngine
         public readonly float x;
         public readonly float z;
         public Vector3(float x, float z = 0) { this.x = x; this.z = z; }
+        public Vector3(float x, float y, float z) { this.x = x; this.z = z; }
         public static Vector3 operator -(Vector3 left, Vector3 right) => new Vector3(left.x - right.x);
         public static float Distance(Vector3 left, Vector3 right) => Math.Abs(left.x - right.x);
         public float sqrMagnitude => x * x;
@@ -186,6 +254,20 @@ namespace UnityEngine
         public bool enabled = true;
         public bool isTrigger = false;
     }
+
+    internal struct Quaternion { public static Quaternion identity => default; }
+    internal enum QueryTriggerInteraction { Ignore }
+
+    // The colliders a box query finds are whatever the check puts in Near.
+    internal static class Physics
+    {
+        public static Collider[] Near = new Collider[0];
+        public static int OverlapBoxNonAlloc(Vector3 center, Vector3 halfExtents, Collider[] results, Quaternion orientation, int mask, QueryTriggerInteraction triggers)
+        {
+            Near.CopyTo(results, 0);
+            return Near.Length;
+        }
+    }
 }
 
 internal static class Refs
@@ -248,7 +330,7 @@ internal sealed class PickupableBoatMooringRope : Component
 }
 
 internal sealed class GPButtonDockMooring : Component { public SpringJoint spring; }
-internal sealed class Sun { public static Sun sun = new Sun(); public double globalTime = 6; }
+internal sealed class Sun { public static Sun sun = new Sun(); public double globalTime = 6; public float initialTimescale = 1; }
 internal sealed class RecoveryPort { public Port parentPort; }
 
 internal static class Recovery

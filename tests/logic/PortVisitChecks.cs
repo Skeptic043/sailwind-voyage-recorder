@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using UnityEngine;
 
@@ -11,6 +12,9 @@ namespace VoyageRecorder
         private static bool CanRead => true;
         private bool recording = true;
         private readonly PortSettings recordPorts = new PortSettings();
+        private readonly PortSettings portlessHints = new PortSettings { Value = false };
+        private readonly PortSettings secretHints = new PortSettings { Value = false };
+        private readonly HashSet<string> writtenMissions = new HashSet<string>();
         private sealed class PortSettings { public bool Value = true; }
         private void Write(string line, int day, double hour) => portLines.Add(line);
         private static Transform BoatRoot(Transform boat) => boat.parent ?? boat;
@@ -80,6 +84,59 @@ namespace VoyageRecorder
             Port.ports = new[] { alternatePort, eastwindPort, grottoPort };
             Recovery.Register(eastwindPort);
             check(Discoveries.PortAtCleat(eastwindCleat) == eastwindPort, "a registered recovery port takes precedence over a test port on the same island");
+
+            CheckCapitalHints(check, body, rope);
+        }
+
+        private static void CheckCapitalHints(Action<bool, string> check, Rigidbody body, PickupableBoatMooringRope rope)
+        {
+            Refs.islands = new Transform[43];
+            Transform Island(int number, float x)
+            {
+                var root = new Transform { name = "island " + number, position = new Vector3(x) };
+                root.Add(new IslandHorizon { islandIndex = number });
+                Refs.islands[number] = root;
+                return root;
+            }
+            Transform goldRock = Island(1, 0);
+            Island(5, 0.5f);
+            Island(6, -0.2f);
+            Island(32, 1);
+            Island(36, 12);
+            Island(42, 2);
+            Transform fort = Island(15, 10);
+            Port goldRockPort = new Transform { name = "Gold Rock City", parent = goldRock }.Add(new Port { portIndex = 0 });
+            Port fortPort = new Transform { name = "Fort Aestrin", parent = fort }.Add(new Port { portIndex = 15 });
+            Port.ports = new[] { goldRockPort, fortPort };
+            GameState.currentBoat = null;
+            List<string> Destinations(Plugin plugin) => plugin.portLines.Select(line => JsonDocument.Parse(line).RootElement)
+                .Where(line => line.GetProperty("type").GetString() == "mission").Select(line => line.GetProperty("destination").GetString()).ToList();
+
+            var recorder = new Plugin();
+            recorder.WriteCapitalHints(new[] { goldRockPort }, 1, 8);
+            check(recorder.portLines.Count == 0, "a capital's mission list writes no island hints with the setting off");
+
+            var dock = new Transform { parent = goldRock };
+            recorder.portlessHints.Value = true;
+            recorder.RecordMooring(rope, dock.Add(new GPButtonDockMooring { spring = dock.Add(new SpringJoint { connectedBody = body }) }));
+            check(recorder.portLines.Count == 1, "tying up at a capital records the visit but no hints");
+
+            recorder.WriteCapitalHints(new[] { goldRockPort }, 1, 8);
+            var hints = recorder.portLines.Skip(1).Select(line => JsonDocument.Parse(line).RootElement).ToList();
+            check(hints.Count == 2 && hints.All(hint => hint.GetProperty("type").GetString() == "mission" &&
+                    hint.GetProperty("source").GetString() == "capital" && hint.GetProperty("origin").GetString() == "Gold Rock City" &&
+                    hint.GetProperty("points").GetInt32() == 32 && hint.TryGetProperty("heading", out _) && hint.TryGetProperty("miles", out _)) &&
+                Destinations(recorder).SequenceEqual(new[] { "Isle of Clear Mind", "Lion's Fang" }),
+                "Gold Rock City's mission list hints toward each Al'Ankh island without a port, on the 32-point compass without Scrambled Seas");
+
+            recorder.WriteCapitalHints(new[] { goldRockPort, fortPort }, 1, 9);
+            check(Destinations(recorder).SequenceEqual(new[] { "Isle of Clear Mind", "Lion's Fang" }),
+                "secret islands stay hidden, and a capital's hints are written once a session");
+
+            recorder.secretHints.Value = true;
+            recorder.WriteCapitalHints(new[] { goldRockPort, fortPort }, 1, 10);
+            check(Destinations(recorder).SequenceEqual(new[] { "Isle of Clear Mind", "Lion's Fang", "Eleann Island", "Saffron", "Bone Isle" }),
+                "showing secret islands adds Eleann Island, Saffron and Bone Isle");
         }
 
         private static bool RecordIs(string line, string type, string port, int island)
